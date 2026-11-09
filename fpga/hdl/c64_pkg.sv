@@ -28,6 +28,7 @@ package c64_pkg;
   // Common
   // ---------------------------------------------------------------------------
   localparam int REG_ADDR_W = 16;                      // 64 KiB AXI4-Lite window per block
+  localparam int CPU_CLK_HZ = 100_000_000;             // cpu_clk, the one fabric clock domain of core 0
 
   // Core 0 fabric window: the BD exports one AXI4-Lite master (M_AXI_C64,
   // base C64_WINDOW_BASE owned by fpga/bd/c64_bd.tcl); c64_top splits it with
@@ -36,6 +37,7 @@ package c64_pkg;
   localparam logic [31:0] WIN_AUD_OFS  = 32'h0001_0000; // sid_audio_out
   localparam logic [31:0] WIN_VID_OFS  = 32'h0002_0000; // c64_video registers
   localparam logic [31:0] WIN_PS2_OFS  = 32'h0003_0000; // ps2_rx
+  localparam logic [31:0] WIN_SID_OFS  = 32'h0004_0000; // sid_player (beyond WIN_SIZE: the window must grow when it is integrated)
   localparam logic [31:0] WIN_BLOCK_SIZE = 32'h0001_0000;
   localparam logic [31:0] WIN_SIZE     = 32'h0004_0000; // whole window, 256 KiB
 
@@ -83,6 +85,7 @@ package c64_pkg;
 
   localparam int AUD_CTRL_ENABLE_BIT  = 0;             // 1: play FIFO; 0: send silence, FIFO holds
   localparam int AUD_CTRL_FLUSH_BIT   = 1;             // write 1: empty the FIFO (self-clearing)
+  localparam int AUD_CTRL_SRC_BIT     = 2;             // 0: AUD_SAMPLE writes; 1: sid_player stream (mono to L/R)
   localparam int AUD_CTRL_IRQ_EN_BIT  = 8;             // low-level interrupt enable
 
   localparam int AUD_STATUS_IRQ_BIT      = 0;          // low-level interrupt pending (W1C)
@@ -95,6 +98,32 @@ package c64_pkg;
   localparam int AUD_MCLK_PER_FS     = 256;            // ADAU1761 MCLK = 256 * fs = 12.288 MHz
   localparam int AUD_BCLK_PER_FS     = 64;             // 2 x 32-bit I2S slots
   localparam int AUD_SAMPLE_W        = 16;             // MSB-aligned in each 32-bit slot
+
+  // ---------------------------------------------------------------------------
+  // SID player (sid_player): timestamped register writes into the reDIP-SID
+  // core, replayed on a 985,248 Hz phi2; 48 kHz audio stream to sid_audio_out.
+  // ---------------------------------------------------------------------------
+  localparam logic [15:0] SID_CTRL_OFS   = 16'h0000; // RW control bits below
+  localparam logic [15:0] SID_STATUS_OFS = 16'h0004; // RW1C status bits below
+  localparam logic [15:0] SID_CYCLE_OFS  = 16'h0008; // RO phi2 cycle counter (falling edges)
+  localparam logic [15:0] SID_WTIME_OFS  = 16'h000C; // WO time of the next write (phi2 cycle)
+  localparam logic [15:0] SID_WDATA_OFS  = 16'h0010; // WO push {WTIME, reg, val}: [12:8] reg, [7:0] val
+  localparam logic [15:0] SID_RDBK_OFS   = 16'h0014; // RO [7:0] OSC3, [15:8] ENV3
+
+  localparam int SID_CTRL_RUN_BIT        = 0;        // 1: phi2 runs and the FIFO is replayed
+  localparam int SID_CTRL_RESET_BIT      = 1;        // level: hold SID res, flush FIFO, clear CYCLE and stickies
+
+  localparam int SID_STATUS_OVERFLOW_BIT = 0;        // WDATA push dropped, FIFO full (W1C)
+  localparam int SID_STATUS_FULL_BIT     = 1;        // FIFO full (RO)
+  localparam int SID_STATUS_LEVEL_LSB    = 16;       // [16+SID_LEVEL_W-1:16] FIFO fill in writes (RO)
+
+  localparam int SID_WDATA_REG_LSB       = 8;        // [12:8] SID register
+  localparam int SID_RDBK_ENV3_LSB       = 8;        // RDBK [15:8] ENV3
+
+  localparam int SID_FIFO_DEPTH          = 512;      // timestamped writes
+  localparam int SID_LEVEL_W              = 10;       // 0..512
+  localparam int SID_PHI2_HZ             = 985_248;  // PAL phi2
+  localparam int SID_DECIM_TAPS          = 20;       // each of the two moving-sum stages
 
   // ---------------------------------------------------------------------------
   // Video (c64_video): 384x240 8-bpp indexed framebuffer, 3x scaled into

@@ -22,10 +22,12 @@
 
 /* Common */
 #define C64_REG_ADDR_W                 (16u)
+#define C64_CPU_CLK_HZ                 (100000000u)
 #define C64_WIN_SYS_OFS                (0x00000000u)
 #define C64_WIN_AUD_OFS                (0x00010000u)
 #define C64_WIN_VID_OFS                (0x00020000u)
 #define C64_WIN_PS2_OFS                (0x00030000u)
+#define C64_WIN_SID_OFS                (0x00040000u)
 #define C64_WIN_BLOCK_SIZE             (0x00010000u)
 #define C64_WIN_SIZE                   (0x00040000u)
 #define C64_WIN1_SYS_OFS               (0x00000000u)
@@ -60,6 +62,7 @@
 #define C64_AUD_THRESH_OFS             (0x0014u)
 #define C64_AUD_CTRL_ENABLE_BIT        (0u)
 #define C64_AUD_CTRL_FLUSH_BIT         (1u)
+#define C64_AUD_CTRL_SRC_BIT           (2u)
 #define C64_AUD_CTRL_IRQ_EN_BIT        (8u)
 #define C64_AUD_STATUS_IRQ_BIT         (0u)
 #define C64_AUD_STATUS_UNDERRUN_BIT    (1u)
@@ -70,6 +73,25 @@
 #define C64_AUD_MCLK_PER_FS            (256u)
 #define C64_AUD_BCLK_PER_FS            (64u)
 #define C64_AUD_SAMPLE_W               (16u)
+
+/* SID player (sid_player) */
+#define C64_SID_CTRL_OFS               (0x0000u)
+#define C64_SID_STATUS_OFS             (0x0004u)
+#define C64_SID_CYCLE_OFS              (0x0008u)
+#define C64_SID_WTIME_OFS              (0x000Cu)
+#define C64_SID_WDATA_OFS              (0x0010u)
+#define C64_SID_RDBK_OFS               (0x0014u)
+#define C64_SID_CTRL_RUN_BIT           (0u)
+#define C64_SID_CTRL_RESET_BIT         (1u)
+#define C64_SID_STATUS_OVERFLOW_BIT    (0u)
+#define C64_SID_STATUS_FULL_BIT        (1u)
+#define C64_SID_STATUS_LEVEL_LSB       (16u)
+#define C64_SID_WDATA_REG_LSB          (8u)
+#define C64_SID_RDBK_ENV3_LSB          (8u)
+#define C64_SID_FIFO_DEPTH             (512u)
+#define C64_SID_LEVEL_W                (10u)
+#define C64_SID_PHI2_HZ                (985248u)
+#define C64_SID_DECIM_TAPS             (20u)
 
 /* Video (c64_video) */
 #define C64_VID_CTRL_OFS               (0x0000u)

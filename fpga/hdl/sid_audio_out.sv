@@ -10,7 +10,10 @@
 //     offsets and bits are c64_pkg AUD_*). Undefined offsets read 0 and
 //     ignore writes.
 //       AUD_CTRL      RW [ENABLE] play the FIFO (0: send zeros, FIFO is not
-//                        read and holds its contents); [IRQ_EN] interrupt
+//                        read and holds its contents); [SRC] sample source,
+//                        0: AUD_SAMPLE writes, 1: the strm_valid/strm_sample
+//                        stream of sid_player (each strobe pushes one frame,
+//                        the mono sample as left and right); [IRQ_EN] interrupt
 //                        enable; [FLUSH] write 1 to empty the FIFO. FLUSH is
 //                        self-clearing: it reads 1 while the flush sequence
 //                        runs and 0 once the FIFO is empty and writable again.
@@ -34,7 +37,8 @@
 //   * STATUS.FULL reads 1 whenever an AUD_SAMPLE write would be dropped: FIFO
 //     full, or the FIFO in its reset/flush sequence. A dropped write changes
 //     nothing; in simulation it is also an $error (firmware must check FULL
-//     or LEVEL first).
+//     or LEVEL first). A strm_valid push with SRC = 1 follows the same gating
+//     and the same $error; with SRC = 0 the stream inputs are ignored.
 //   * FIFO: xpm_fifo_async, AUD_FIFO_DEPTH x 32 bits, block RAM, standard
 //     read mode, read latency 1. Why: the producer (cpu_clk, 100 MHz) and the
 //     consumer (aud_clk, 12.288 MHz from an audio MMCM in c64_top) are
@@ -98,6 +102,7 @@
 // Language: SystemVerilog-2012.
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version.
+//   * 11-09-2026: CTRL.SRC and the strm_valid/strm_sample inputs (sid_player).
 // Clocks: cpu_clk (100 MHz, AXI and register file, FIFO write side);
 //   aud_clk (12.288 MHz = 256 x 48 kHz from the audio MMCM, FIFO read side
 //   and I2S). The two are asynchronous.
@@ -132,6 +137,11 @@ module sid_audio_out #(
   // Interrupt to core 0, cpu_clk register, active-high level:
   // STATUS.IRQ && CTRL.IRQ_EN.
   output logic                          irq,
+
+  // Sample stream from sid_player, cpu_clk: strm_valid is one clock wide and
+  // strm_sample (signed) is valid with it. Used when CTRL.SRC = 1.
+  input  logic                          strm_valid,
+  input  logic signed [15:0]            strm_sample,
 
   // aud_clk domain: 12.288 MHz codec master clock (also forwarded to the
   // codec MCLK pin by an ODDR in c64_top) and its synchronous active-low
@@ -203,6 +213,7 @@ module sid_audio_out #(
 
   logic                   ctrl_enable;       // CTRL.ENABLE
   logic                   ctrl_irq_en;       // CTRL.IRQ_EN
+  logic                   ctrl_src;          // CTRL.SRC
   // Initialised to their reset values so the FIFO sees rst = 0 and no write
   // before the first cpu_clk edge (power-up equals reset).
   logic [1:0]             flush_state = S_READY_WAIT; // the one sequencer state register
@@ -216,7 +227,8 @@ module sid_audio_out #(
   logic                   fifo_full;
   logic                   fifo_wr_rst_busy;
   logic [AUD_LEVEL_W-1:0] fifo_wr_count;
-  logic                   fifo_wr_req;       // AUD_SAMPLE write strobe
+  logic                   fifo_wr_req;       // AUD_SAMPLE write or stream strobe
+  logic [FRAME_W-1:0]     fifo_din;
   logic                   fifo_wr_block;     // a write now would be dropped (STATUS.FULL)
   logic                   fifo_wr_en;        // gated write enable
   logic                   wr_ctrl;
@@ -280,7 +292,8 @@ module sid_audio_out #(
   assign wr_ctrl       = reg_wr_en && (reg_wr_addr == AUD_CTRL_OFS);
   assign wr_status     = reg_wr_en && (reg_wr_addr == AUD_STATUS_OFS);
   assign wr_thresh     = reg_wr_en && (reg_wr_addr == AUD_THRESH_OFS);
-  assign fifo_wr_req   = reg_wr_en && (reg_wr_addr == AUD_SAMPLE_OFS);
+  assign fifo_wr_req   = ctrl_src ? strm_valid : (reg_wr_en && (reg_wr_addr == AUD_SAMPLE_OFS));
+  assign fifo_din      = ctrl_src ? {strm_sample, strm_sample} : reg_wr_data;
   assign fifo_wr_block = fifo_full || fifo_wr_rst_busy || (flush_state != S_IDLE);
   assign fifo_wr_en    = fifo_wr_req && !fifo_wr_block;
   assign level_low     = (level <= thresh);
@@ -292,11 +305,13 @@ module sid_audio_out #(
     if (!cpu_resetn) begin
       ctrl_enable <= 1'b0;
       ctrl_irq_en <= 1'b0;
+      ctrl_src    <= 1'b0;
       thresh      <= THRESH_RESET;
     end else begin
       if (wr_ctrl) begin
         ctrl_enable <= reg_wr_data[AUD_CTRL_ENABLE_BIT];
         ctrl_irq_en <= reg_wr_data[AUD_CTRL_IRQ_EN_BIT];
+        ctrl_src    <= reg_wr_data[AUD_CTRL_SRC_BIT];
       end
       if (wr_thresh) thresh <= reg_wr_data[AUD_LEVEL_W-1:0];
     end
@@ -373,6 +388,7 @@ module sid_audio_out #(
     ctrl_word                          = '0;
     ctrl_word[AUD_CTRL_ENABLE_BIT]     = ctrl_enable;
     ctrl_word[AUD_CTRL_FLUSH_BIT]      = (flush_state != S_IDLE);
+    ctrl_word[AUD_CTRL_SRC_BIT]        = ctrl_src;
     ctrl_word[AUD_CTRL_IRQ_EN_BIT]     = ctrl_irq_en;
     status_word                        = '0;
     status_word[AUD_STATUS_IRQ_BIT]      = status_irq;
@@ -427,7 +443,7 @@ module sid_audio_out #(
     .rst           (fifo_rst),
     .wr_clk        (cpu_clk),
     .wr_en         (fifo_wr_en),
-    .din           (reg_wr_data),
+    .din           (fifo_din),
     .full          (fifo_full),
     .prog_full     (),
     .wr_data_count (fifo_wr_count),
@@ -526,7 +542,7 @@ module sid_audio_out #(
   // synthesis translate_off
   always @(posedge cpu_clk) begin
     if (cpu_resetn && fifo_wr_req && fifo_wr_block)
-      $error("%m: AUD_SAMPLE write dropped, FIFO full or in reset (STATUS.FULL = 1)");
+      $error("%m: AUD_SAMPLE write or stream sample dropped, FIFO full or in reset (STATUS.FULL = 1)");
     if (cpu_resetn && fifo_wr_en && fifo_wr_rst_busy)
       $error("%m: FIFO write while wr_rst_busy");
   end

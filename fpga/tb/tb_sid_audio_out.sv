@@ -33,9 +33,11 @@
 //      flushed frames never appear, the FIFO works afterwards.
 //   G. FULL: AUD_FIFO_DEPTH - 1 frames fill the FIFO (xpm_fifo_async
 //      independent-clock capacity), FULL clear one frame earlier.
+//   H. Stream source: CTRL.SRC = 1 sends each strm_valid sample as a mono frame
+//      (same sample left and right) in order; AUD_SAMPLE writes are ignored.
 // Language: SystemVerilog-2012 (simulation only).
 // Revision: 11-09-2026
-//   * 11-09-2026: initial version.
+//   * 11-09-2026: initial version; case H (stream source).
 // -----------------------------------------------------------------------------
 `timescale 1ns / 1ps
 
@@ -58,6 +60,7 @@ module tb_sid_audio_out;
 
   localparam logic [31:0] C_ENABLE = 32'h1 << AUD_CTRL_ENABLE_BIT;
   localparam logic [31:0] C_FLUSH  = 32'h1 << AUD_CTRL_FLUSH_BIT;
+  localparam logic [31:0] C_SRC    = 32'h1 << AUD_CTRL_SRC_BIT;
   localparam logic [31:0] C_IRQ_EN = 32'h1 << AUD_CTRL_IRQ_EN_BIT;
   localparam logic [31:0] S_IRQ    = 32'h1 << AUD_STATUS_IRQ_BIT;
   localparam logic [31:0] S_UNDER  = 32'h1 << AUD_STATUS_UNDERRUN_BIT;
@@ -81,6 +84,8 @@ module tb_sid_audio_out;
   logic [1:0]    bresp, rresp;
   logic          awvalid, awready, wvalid, wready, bvalid, bready, arvalid, arready, rvalid, rready;
   logic          irq;
+  logic          strm_valid = 1'b0;     // stream source unused here (CTRL.SRC = 0)
+  logic signed [15:0] strm_sample = '0;
   logic          aud_bclk_q;
   logic          aud_lrclk_q;
   logic          aud_sdata_q;
@@ -96,7 +101,7 @@ module tb_sid_audio_out;
     .s_axi_wstrb(wstrb), .s_axi_wvalid(wvalid), .s_axi_wready(wready), .s_axi_bresp(bresp),
     .s_axi_bvalid(bvalid), .s_axi_bready(bready), .s_axi_araddr(araddr), .s_axi_arvalid(arvalid),
     .s_axi_arready(arready), .s_axi_rdata(rdata), .s_axi_rresp(rresp), .s_axi_rvalid(rvalid),
-    .s_axi_rready(rready), .irq(irq),
+    .s_axi_rready(rready), .irq(irq), .strm_valid(strm_valid), .strm_sample(strm_sample),
     .aud_clk(aud_clk), .aud_resetn(aud_resetn),
     .aud_bclk_q(aud_bclk_q), .aud_lrclk_q(aud_lrclk_q), .aud_sdata_q(aud_sdata_q));
 
@@ -210,6 +215,10 @@ module tb_sid_audio_out;
     if (v[15:0] == 16'h0)  v[0]  = 1'b1;     // both halves non-zero
     if (v[31:16] == 16'h0) v[16] = 1'b1;
     return v;
+  endfunction
+
+  function automatic logic [15:0] strm_sample_next(input int i);
+    return 16'(16'sh1234 + 16'sh0111 * i - ((i == 3) ? 16'sh4000 : 16'sh0));   // i = 3 is negative
   endfunction
 
   task automatic push_frames(input int n);
@@ -440,6 +449,23 @@ module tb_sid_audio_out;
     u_mst.wr(AW'(AUD_CTRL_OFS), C_ENABLE);
     wait_played(base + 3, "frames after the full flush");
     tb_check(dec_slots > 0, "decoder saw slots");
+
+    // H. Stream source (CTRL.SRC = 1).
+    u_mst.wr(AW'(AUD_CTRL_OFS), C_ENABLE | C_SRC);
+    expect_reg(AUD_CTRL_OFS, C_SRC, C_SRC, "CTRL.SRC reads back");
+    base = played;
+    u_mst.wr(AW'(AUD_SAMPLE_OFS), 32'hDEAD_BEEF);     // ignored while SRC = 1
+    for (int i = 0; i < 4; i++) begin
+      @(posedge cpu_clk);
+      strm_sample <= strm_sample_next(i);
+      strm_valid  <= 1'b1;
+      exp_q.push_back({strm_sample_next(i), strm_sample_next(i)});
+      @(posedge cpu_clk);
+      strm_valid  <= 1'b0;
+      repeat (3) @(posedge cpu_clk);
+    end
+    wait_played(base + 4, "stream frames");
+    tb_check(exp_q.size() == 0, "only the stream frames were played (AUD_SAMPLE write ignored)");
 
     tb_verdict("tb_sid_audio_out");
   end

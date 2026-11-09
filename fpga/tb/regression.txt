@@ -7,3 +7,5 @@ tb_ps2_rx          fpga/tb/tb_ps2_rx.f
 tb_ps2_rx          fpga/tb/tb_ps2_rx.f         neg  plusargs=INJECT_FAILURE  expectfail
 tb_sid_audio_out   fpga/tb/tb_sid_audio_out.f
 tb_sid_audio_out   fpga/tb/tb_sid_audio_out.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_sid_player      fpga/tb/tb_sid_player.f
+tb_sid_player      fpga/tb/tb_sid_player.f     neg  plusargs=INJECT_FAILURE  expectfail
