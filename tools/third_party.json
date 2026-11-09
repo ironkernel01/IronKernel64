@@ -22,6 +22,23 @@
       "tree_sha256": "555e7bfa13953ecb1ab5966707d0c24ee6e1ef037034c5081e1c7d4a7443f8f4"
     },
     {
+      "name": "rtlnet-board",
+      "url": "https://github.com/ironkernel01/RTLnet.git",
+      "sibling": "RTLNet",
+      "commit": "79646d07fb95c442ac6481533f0439098a5c2ca9",
+      "license": "GPL (IronKernel RTLNet)",
+      "include": [
+        "scripts/rtlnet_board_lock.ps1",
+        "scripts/rtlnet_board.ps1",
+        "boards/nexys_video/scripts/program.ps1",
+        "boards/nexys_video/scripts/program.tcl",
+        "boards/nexys_video/scripts/jtag_load_elf.ps1",
+        "boards/nexys_video/scripts/jtag_load_elf.tcl",
+        "boards/nexys_video/scripts/merge_elf.ps1"
+      ],
+      "tree_sha256": "e10fdd68c39d7a87f2c8b0a0c35872b77ec8a11d4150b4dbb013b34e84eaa17e"
+    },
+    {
       "name": "freertos",
       "url": "https://github.com/FreeRTOS/FreeRTOS-Kernel.git",
       "commit": "89592801dd8b73329a7583719b7e3567b50910e5",
