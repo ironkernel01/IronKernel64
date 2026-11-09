@@ -1,0 +1,33 @@
+# IronKernel 64 -- core 0 engineering CLI (MenuBuilder input, FUNCTION:COMMAND:DESCRIPTION).
+# The CLI is reached over the UART with Ctrl-B (KEYBOARD_EVENT_CLI_TOGGLE); the C64 screen
+# keeps running while it is active. [ARG] is required, {ARG} optional (optional args last).
+# Descriptions contain no colons. Numbers accept decimal or 0x hex.
+#
+# Core and platform
+cli_version:VERSION:Show firmware version, build date, bitstream ID and clock lock status
+cli_cpu_test:CPU TEST:Run the RV32IMC Zicsr Zba instruction self test and print pass or fail
+cli_bench:BENCH:Time SID emulation of one PAL frame and the frame render loop in cycles
+cli_ddr_info:DDR INFO:Show DDR3 calibration time, probed size, free bytes and pattern test result
+#
+# SID player
+cli_sid_dump:SID DUMP [TUNE] {SONG} {SECS}:Run a tune headless and print SID register writes per frame
+cli_sid_replay:SID REPLAY [FILE]:Replay a SID register write log from the drive through the emulator
+cli_sid_status:SID STATUS:Show the current tune, song, elapsed time and voice levels
+#
+# Audio path
+cli_audio_status:AUDIO STATUS:Show audio FIFO level, threshold, underrun count and status flags
+cli_audio_tone:AUDIO TONE {HZ}:Play a sine test tone on both channels (default 1000 Hz, 0 stops)
+cli_codec_read:CODEC READ [REG]:Read one ADAU1761 register over I2C (REG 0x4000 to 0x40FA)
+cli_codec_write:CODEC WRITE [REG] [VALUE]:Write one ADAU1761 register over I2C
+cli_codec_init:CODEC INIT:Run the ADAU1761 init sequence again with read-back check
+#
+# Drive (core 1)
+cli_drive_status:DRIVE STATUS:Ping core 1 and show the DOS status line and mailbox counters
+cli_drive_cmd:DRIVE CMD [TEXT]:Send a DOS command on channel 15 such as CD//, I or UI
+cli_drive_dir:DRIVE DIR {PATTERN}:List the current drive directory on the UART
+cli_drive_log:DRIVE LOG:Print and drain the core 1 log ring from shared BRAM
+#
+# Video and input
+cli_video_status:VIDEO STATUS:Show frame counter, vsync count, front page and flip state
+cli_video_palette:VIDEO PALETTE [INDEX] [RGB]:Set one palette entry to 0xRRGGBB
+cli_keyboard_stats:KEYBOARD STATS:Show UART and PS2 byte counts, drops and parity or frame errors

@@ -1,0 +1,9 @@
+# IronKernel 64 RTL regression: <bench> <filelist> [tag] [defines=A,B] [plusargs=X,Y] [expectfail]
+tb_c64_video   fpga/tb/tb_c64_video.f
+tb_c64_video   fpga/tb/tb_c64_video.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_c64_sysregs     fpga/tb/tb_c64_sysregs.f
+tb_c64_sysregs     fpga/tb/tb_c64_sysregs.f    neg  plusargs=INJECT_FAILURE  expectfail
+tb_ps2_rx          fpga/tb/tb_ps2_rx.f
+tb_ps2_rx          fpga/tb/tb_ps2_rx.f         neg  plusargs=INJECT_FAILURE  expectfail
+tb_sid_audio_out   fpga/tb/tb_sid_audio_out.f
+tb_sid_audio_out   fpga/tb/tb_sid_audio_out.f  neg  plusargs=INJECT_FAILURE  expectfail

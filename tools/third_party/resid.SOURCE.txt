@@ -1,0 +1,30 @@
+reSID -- MOS6581/8580 SID emulation engine
+Author:  Dag Lem <resid@nimrod.no>
+License: GPL-2.0-or-later (COPYING in this directory, from the same commit)
+URL:     https://github.com/libsidplayfp/resid
+Commit:  f872782804c751eb94d409a1250cbfeb03940cd0
+         (2010-06-19, "Rename class SID as class RESID to avoid conflicts with
+         some windows API."; the last commit of the reSID 0.16 code base before
+         4176321 "resid-1.0-pre1". reSID 1.0 replaces the f0_points cutoff
+         tables with an op-amp model, so the 0.16 code base is the source of
+         the cutoff point tables used here.)
+Fetched: 2026-11-09 with git clone + git show <commit>:<file>.
+
+Files (byte-identical to the upstream blobs at that commit):
+  COPYING AUTHORS README
+  wave6581__ST.dat wave6581_P_T.dat wave6581_PS_.dat wave6581_PST.dat
+  wave8580__ST.dat wave8580_P_T.dat wave8580_PS_.dat wave8580_PST.dat
+      -> combined-waveform tables in fw_c64/src/sid_tables.c
+  filter.cc   -> f0_points_6581 / f0_points_8580 (cutoff tables), set_Q
+                 (resonance table), mixer DC offset (sid.c)
+  spline.h    -> interpolation reproduced by tools/resid_tables.py
+  filter.h    -> state-variable filter equations and routing (sid.c)
+  envelope.cc, envelope.h -> rate counter periods, sustain levels, exponential
+                 counter thresholds, ADSR delay-bug behaviour (sid.c)
+  wave.cc, wave.h -> accumulator, noise LFSR taps/output bits, test bit,
+                 sync and ring modulation, combined-waveform indexing (sid.c)
+  voice.cc    -> waveform DAC zero level and voice DC offset (sid.c)
+
+Generator: python -I tools/resid_tables.py third_party/resid fw_c64/src/sid_tables.c
+Nothing in this directory is compiled; these files are the provenance of the
+derived tables and constants.

@@ -1,0 +1,4 @@
+Source: https://github.com/sahlberg/libsmb2 (Ronnie Sahlberg), branch master, commit a52c1571a1ff223bde5bb3df9fec7af5ce3855d4 (2026-11-07T18:44:41+10:00)
+Fetched with git clone --depth 1 on 11-09-2026; the .git directory was removed, every file is unmodified upstream. Do not edit; re-fetch to update.
+Licence: lib/ and include/ (except DCE/RPC) LGPL-2.1-or-later (LICENCE-LGPL-2.1.txt); libdcerpc/ BSD-2-Clause (COPYING). IronKernel 64 uses lib/ and include/ only (no libdcerpc).
+Build: compiled in place by fw_1541/spike_build.ps1 (later fw_1541/build.ps1) with fw_1541/net/smb2cfg/config.h and -DHAVE_CONFIG_H -DPICO_PLATFORM; project deviations: fw_1541/DEVIATIONS.md.

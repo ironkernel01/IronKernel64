@@ -1,0 +1,27 @@
+Upstream: MEGA65 Open ROMs (free C64-compatible ROM set)
+url: https://github.com/MEGA65/open-roms
+commit: ad178dbe4d48cd6a317737a8e0e7e662f7e33d32
+commit-date: 2026-05-16T22:31:48+02:00
+fetched: 11-09-2026 (git clone --depth 1, branch master)
+license: LGPL-3.0-or-later for the character set (LICENSE, COPYING.LESSER, COPYING);
+  tools/pngprepare.c is X11-licensed (its own header).
+
+Files here are byte-for-byte copies of the upstream files (unmodified):
+  8x8font.png           <- assets/8x8font.png        sha256 99e8f614d7b22b7dddf4540a76dc97dfe7da40802b07c6eaa420c7df4a2e6b5c
+  chargen_openroms.rom  <- bin/chargen_openroms.rom  sha256 5e3451466841b93df7e01e4b635b07b8d8633351bae483b1961d96b3131186e7
+  pngprepare.c          <- tools/pngprepare.c        sha256 90143aa05f4b7b7a7411684258504f605ca45b3237924406114ee235071beb43
+  LICENSE               <- LICENSE                   sha256 995ed8ef0d733c1a158bc071c119189cfd955b7c5c2e7f8487f2fc22577f6f68
+  COPYING               <- COPYING                   sha256 bfde1fd94c3b17b89fbbfa6321660c8284f631bf126db1e0a32c897944a842db
+  COPYING.LESSER        <- COPYING.LESSER            sha256 99ca28591e357c5d250eed946142897c11a697b9ff1cc030c5205bb3ff5f6976
+
+Chargen source: assets/8x8font.png is the source of the character set. The upstream Makefile
+builds build/chargen_openroms.rom from it with "pngprepare charrom assets/8x8font.png <out>"
+(Makefile rule TARGET_CHR_ORF); bin/chargen_openroms.rom is that build output. No other
+chargen source exists in the repository (src/ holds the KERNAL/BASIC assembly only;
+bin/chargen_pxlfont_2.3.rom is the separate PXL font by Retrofan and is not used here).
+
+Use in IronKernel 64: tools/font2c.py converts 8x8font.png with the pngprepare "charrom"
+rules into fw_c64/src/font_openroms.c/.h and checks the result against
+chargen_openroms.rom byte for byte. The image is already in C64 screen-code order
+(upper-case/graphics set, its reverse half, lower-case set, its reverse half), so no
+remapping is applied.

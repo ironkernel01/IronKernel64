@@ -1,0 +1,25 @@
+# Build outputs
+build/
+.sim/
+.Xil/
+*.jou
+*.log
+*.str
+
+# Repo-local knowledge base (fpga.md section 14.1): kept out of the public repo
+.claude/
+
+# Never committed (c64demo.md "Licensing"): third-party copyrighted media and private configuration
+*.sid
+*.d64
+*.rom
+*.bin.rom
+chargen*
+kernal*
+basic*.rom
+netshare_config.h
+
+# Third-party trees are not committed: tools/setup_third_party.py installs them at the
+# commits pinned in tools/third_party.json (provenance notes in tools/third_party/).
+third_party/*
+!third_party/README.md

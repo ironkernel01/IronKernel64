@@ -1,0 +1,47 @@
+6502 functional and decimal tests
+Author:  Klaus Dormann (test suite, configuration of the decimal test);
+         Bruce Clark (decimal test code, 6502_decimal_test.a65, public domain)
+License: GPL-3.0 (license.txt in this directory, from the same commit)
+URL:     https://github.com/Klaus2m5/6502_65C02_functional_tests
+Commit:  7954e2dbb49c469ea286070bf46cdd71aeb29e4b (2020-01-05)
+Fetched: 2026-11-09 with git clone.
+
+Upstream files, byte-identical:
+  license.txt  readme.txt
+  6502_functional_test.a65
+  6502_functional_test.bin   (upstream bin_files/; as65 build of the .a65 above)
+  6502_functional_test.lst   (upstream bin_files/, its listing)
+  6502_decimal_test.a65
+
+Built here (upstream ships no decimal-test binary; as65 is a DOS/Windows .exe and
+is not run):
+  6502_decimal_test.bin, 6502_decimal_test.lst
+    python -I tools/dormann_decimal.py third_party/dormann/6502_decimal_test.a65 third_party/dormann/6502_decimal_test.bin
+    Configuration: cputype = 0 (NMOS 6502), vld_bcd = 0 (all operands, invalid
+    BCD included), chk_a = chk_n = chk_v = chk_z = chk_c = 1. end_of_test is
+    replaced by "lda ERROR / bne *+5 / jmp * / jmp *" (the upstream macro is a
+    65C02 STP, $DB, which is DCP abs,Y on NMOS).
+    sha256 4ca7e259fe5fd7db15756a7f79c569cec64651046a2e49d9d94f9b05b8f1055c
+
+Image facts (checked by tools/dormann_bin2c.py when it embeds the images):
+
+  6502_functional_test.bin  (sha256 fa12bfc761e6f9057e4cc01a665a7b800ff01ae91f598af1e39a1201d01953fd)
+    size 65536, load address $0000 (full memory image, unused bytes $FF)
+    start address        $0400  (label "start", d8 = CLD)
+    success trap         $3469  (4C 69 34, JMP *, "test passed, no errors")
+    every other trap     JMP * or a branch to itself at the failing test
+    vectors              NMI $379D, RESET $37A3, IRQ/BRK $37AB
+    settings (from the .lst): zero_page = $0A, data_segment = $0200,
+    code_segment = $0400, load_data_direct = 1, ROM_vectors = 1, I_flag = 3,
+    disable_decimal = 0, report = 0
+
+  6502_decimal_test.bin
+    size 267, load address $0200 (variables in zero page $00-$10, ERROR = $0B)
+    start address        $0200  (label "TEST")
+    DONE                 $024B  (lda ERROR / bne -> failure)
+    success trap         $024F  (4C 4F 02, JMP *, ERROR = 0)
+    failure trap         $0252  (4C 52 02, JMP *, ERROR = 1)
+    needs a stack (S set by the runner, $FF)
+
+Use: fw_c64/src/cpu_selftest.c (the `cputest` CLI command); the build embeds both
+images with tools/dormann_bin2c.py (see fw_c64/src/cpu_selftest.h).

@@ -1,0 +1,118 @@
+{
+  "comment": "Pinned third-party sources for IronKernel 64. tools/setup_third_party.py fetches each entry at its commit into third_party/<name>/ (gitignored), checks tree_sha256 and writes SOURCE.txt from tools/third_party/<name>.SOURCE.txt. Bump a version: change commit, run setup with --update-hashes, review the diff, update the SOURCE.txt note and README credits.",
+  "entries": [
+    {
+      "name": "rtlnet",
+      "url": "https://github.com/ironkernel01/RTLnet.git",
+      "sibling": "RTLNet",
+      "commit": "ea70c8558ec4ef1133d1e9adde1b278e106302e0",
+      "license": "GPL (IronKernel RTLNet)",
+      "include": [
+        "cores/rtlnet_common/",
+        "cores/rtlnet_axi_cdc/",
+        "cores/rtlnet_axi_arbiter/",
+        "cores/rtlnet_ddr/",
+        "scripts/rtlnet_constrain_cdc.tcl",
+        "scripts/rtlnet_regression.ps1",
+        "scripts/rtlnet_run_sim.ps1",
+        "scripts/rtlnet_synth_check.tcl",
+        "scripts/rtlnet_tools.ps1",
+        "scripts/rtlnet_vivado.ps1"
+      ],
+      "tree_sha256": "555e7bfa13953ecb1ab5966707d0c24ee6e1ef037034c5081e1c7d4a7443f8f4"
+    },
+    {
+      "name": "freertos",
+      "url": "https://github.com/FreeRTOS/FreeRTOS-Kernel.git",
+      "commit": "89592801dd8b73329a7583719b7e3567b50910e5",
+      "license": "MIT",
+      "include": [
+        ""
+      ],
+      "tree_sha256": "1d410b33efcb84ca966772cc4c377ee09fa757cef27ac627fbddb710515f284b"
+    },
+    {
+      "name": "libsmb2",
+      "url": "https://github.com/sahlberg/libsmb2.git",
+      "commit": "a52c1571a1ff223bde5bb3df9fec7af5ce3855d4",
+      "license": "LGPL-2.1-or-later (lib/, include/); BSD-2-Clause (libdcerpc/)",
+      "include": [
+        ""
+      ],
+      "tree_sha256": "737ce48110564a1a90a306d933a298ad9e9eefd022a97528dea5ac030479a8ed"
+    },
+    {
+      "name": "open-roms",
+      "url": "https://github.com/MEGA65/open-roms.git",
+      "commit": "ad178dbe4d48cd6a317737a8e0e7e662f7e33d32",
+      "license": "LGPL-3.0-or-later (character set); X11 (tools/pngprepare.c)",
+      "files": {
+        "8x8font.png": "assets/8x8font.png",
+        "chargen_openroms.rom": "bin/chargen_openroms.rom",
+        "pngprepare.c": "tools/pngprepare.c",
+        "LICENSE": "LICENSE",
+        "COPYING": "COPYING",
+        "COPYING.LESSER": "COPYING.LESSER"
+      },
+      "tree_sha256": "f6725ccf25c8b7f59fdea28af8051215a967335942a435218519cd0be6d40311"
+    },
+    {
+      "name": "resid",
+      "url": "https://github.com/libsidplayfp/resid.git",
+      "commit": "f872782804c751eb94d409a1250cbfeb03940cd0",
+      "license": "GPL-2.0-or-later",
+      "files": {
+        "AUTHORS": "AUTHORS",
+        "COPYING": "COPYING",
+        "README": "README",
+        "envelope.cc": "envelope.cc",
+        "envelope.h": "envelope.h",
+        "filter.cc": "filter.cc",
+        "filter.h": "filter.h",
+        "spline.h": "spline.h",
+        "voice.cc": "voice.cc",
+        "wave.cc": "wave.cc",
+        "wave.h": "wave.h",
+        "wave6581__ST.dat": "wave6581__ST.dat",
+        "wave6581_P_T.dat": "wave6581_P_T.dat",
+        "wave6581_PS_.dat": "wave6581_PS_.dat",
+        "wave6581_PST.dat": "wave6581_PST.dat",
+        "wave8580__ST.dat": "wave8580__ST.dat",
+        "wave8580_P_T.dat": "wave8580_P_T.dat",
+        "wave8580_PS_.dat": "wave8580_PS_.dat",
+        "wave8580_PST.dat": "wave8580_PST.dat"
+      },
+      "tree_sha256": "5fb6a81fbd5b54271c7cd4acf8c525750c4e85c1e4f5b4342d655a15f0fd2101"
+    },
+    {
+      "name": "dormann",
+      "url": "https://github.com/Klaus2m5/6502_65C02_functional_tests.git",
+      "commit": "7954e2dbb49c469ea286070bf46cdd71aeb29e4b",
+      "license": "GPL-3.0 (decimal test code by Bruce Clark: public domain)",
+      "files": {
+        "license.txt": "license.txt",
+        "readme.txt": "readme.txt",
+        "6502_functional_test.a65": "6502_functional_test.a65",
+        "6502_functional_test.bin": "bin_files/6502_functional_test.bin",
+        "6502_functional_test.lst": "bin_files/6502_functional_test.lst",
+        "6502_decimal_test.a65": "6502_decimal_test.a65"
+      },
+      "post": [
+        {
+          "run": [
+            "{python}",
+            "-I",
+            "{repo}/tools/dormann_decimal.py",
+            "{dest}/6502_decimal_test.a65",
+            "{dest}/6502_decimal_test.bin"
+          ],
+          "outputs": {
+            "6502_decimal_test.bin": "4ca7e259fe5fd7db15756a7f79c569cec64651046a2e49d9d94f9b05b8f1055c",
+            "6502_decimal_test.lst": ""
+          }
+        }
+      ],
+      "tree_sha256": "ca98a505b4e33e348a7884b3bb376006ba361d0b08259dd2b9d9b9c0ef195b65"
+    }
+  ]
+}

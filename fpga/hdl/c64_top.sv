@@ -1,0 +1,1496 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 IronKernel
+// -----------------------------------------------------------------------------
+// File: c64_top.sv
+// Purpose: the IronKernel 64 board top for the Digilent Nexys Video
+//   (XC7A200T-1SBG484): pins, clock generation and global buffers, the reset
+//   tree, the two-core MicroBlaze V block design c64_cpu, the fabric register
+//   windows of both cores, the video, audio, PS/2 and system-register blocks,
+//   the DDR3 path and every I/O primitive (OSERDESE2, OBUFDS, ODDR, IOBUF).
+// Overview:
+//   * Derived from RTLNet boards/nexys_video/hdl/rtlnet_nexys_video_top.sv
+//     (commit ea70c8558ec4ef1133d1e9adde1b278e106302e0): same system MMCM,
+//     reset tree, DDR3 path (rtlnet_axi_cdc -> rtlnet_axi_arbiter ->
+//     rtlnet_ddr) and register-window decoder (rtlnet_axil_decoder).
+//   * Clocks:
+//       u_mmcm_sys (RTLNet's MMCM, unchanged): 100 MHz in, VCO 1000 MHz;
+//         CLKOUT2 clk200 (MIG IDELAY reference), CLKOUT5 cpu_clk 100 MHz,
+//         CLKOUT6 ddr_sys_clk 100 MHz (MIG PLL input). CLKOUT0/1/3/4
+//         (clk125, clk125_90, axis_clk, proto_clk) are the Phase 4 network
+//         clocks; they have no BUFG until the network cores are added.
+//       u_mmcm_pix: cpu_clk in, DIVCLK 5, MULT 37.125, VCO 742.5 MHz;
+//         CLKOUT0 /10 = pix_clk 74.25 MHz (CEA-861 720p60, exact),
+//         CLKOUT1 /2 = pix_clk_x5 371.25 MHz (TMDS 10:1 DDR serial clock).
+//       u_mmcm_aud: cpu_clk in, DIVCLK 5, MULT 48, VCO 960 MHz;
+//         CLKOUT0 /78.125 = aud_clk 12.288 MHz = 256 x 48 kHz (exact).
+//       ui_clk: MIG user clock, 100 MHz.
+//   * Resets: rst_arstn = cpu_resetn & system MMCM locked; one
+//     rtlnet_reset_sync per domain. The pixel and audio domains also wait for
+//     their own MMCM; the ui_clk reset is RTLNet's (chain AND MIG ui reset).
+//   * Register windows:
+//       core 0 M_AXI_C64 (0x4400_0000, 256 KiB) -> u_dec0: SYS (c64_sysregs
+//         core 0), AUD (sid_audio_out), VID (c64_video), PS2 (ps2_rx), 64 KiB
+//         each at c64_pkg WIN_*_OFS.
+//       core 1 M_AXI_DRV (0x44A0_0000, 1 MiB) -> u_dec1, RTLNet layout:
+//         SYS (c64_sysregs core 1), ARB (rtlnet_axi_arbiter registers), and
+//         stubs (OKAY, read 0) for MAC, MDIO and PROTOCOL until Phase 4.
+//       Addresses outside every slot get DECERR from the decoder.
+//   * Interrupts: core 0 irq0[0] audio, [1] vsync, [2] PS/2, [7:3] 0;
+//     core 1 irq1[7:0] 0 (Phase 4 adds the network cores).
+//   * Ethernet: Phase 1 holds the RTL8211E in reset (eth_rst_b low) and the
+//     core 1 DMA streams idle (S_AXIS_ETH never valid, M_AXIS_ETH always ready).
+//   * LEDs: led[0] system MMCM locked, led[1] DDR3 calibrated,
+//     led[3:2] core 0 SYS_LED[1:0], led[7:4] core 1 SYS_LED[3:0].
+// Language: SystemVerilog-2012 (synthesizable).
+// Revision: 11-09-2026
+//   * 11-09-2026: initial version.
+// Clocks: sysclk (100 MHz pin) -> u_mmcm_sys; cpu_clk, clk200, ddr_sys_clk,
+//   pix_clk, pix_clk_x5, aud_clk, ui_clk as above.
+// Pins: names, balls, banks and I/O standards from the Digilent
+//   Nexys-Video-Master.xdc (Rev. A); constraints in fpga/c64.xdc.
+// -----------------------------------------------------------------------------
+module c64_top
+  import c64_pkg::*;
+#(
+  parameter logic [31:0] BUILD_ID    = 32'h0000_0000,  // git hash (build script: git rev-parse --short=8 HEAD)
+  parameter bit          BUILD_DIRTY = 1'b0            // build tree had uncommitted changes
+)(
+  // System clock: 100 MHz oscillator, ball R4, net SYSCLK, bank 34 (3.3 V),
+  // LVCMOS33, MRCC input; feeds only u_mmcm_sys.
+  input  logic       sysclk,
+
+  // CPU RESET push button: ball G4, net CPU_RESETN, bank 35 (1.5 V), LVCMOS15;
+  // low while pressed, asynchronous.
+  input  logic       cpu_resetn,
+
+  // USB-UART bridge (FT232R), bank 14 (3.3 V), LVCMOS33, 115200 8N1, core 0
+  // console (axi_uartlite_0), names from the bridge's point of view:
+  // uart_tx_in ball V18 (bridge TXD -> FPGA receive, asynchronous, idle high);
+  // uart_rx_out ball AA19 (FPGA transmit -> bridge RXD).
+  input  logic       uart_tx_in,
+  output logic       uart_rx_out,
+
+  // User LEDs LD0..LD7, bank 13 (2.5 V), LVCMOS25, active high:
+  // led[0] T14, [1] T15, [2] T16, [3] U16, [4] V15, [5] W16, [6] W15, [7] Y13.
+  // Assignment in the header (MMCM, DDR3, SYS_LED of both cores).
+  output logic [7:0] led,
+
+  // HDMI source J8 (TMDS, DVI 1.0 signalling), bank 34 (3.3 V), TMDS_33,
+  // driven by OSERDESE2 10:1 + OBUFDS below:
+  // hdmi_tx_clk_p T1 / _n U1 (pixel clock lane), hdmi_tx_p[0] W1 / _n[0] Y1
+  // (blue + syncs), [1] AA1 / AB1 (green), [2] AB3 / AB2 (red).
+  output logic       hdmi_tx_clk_p,
+  output logic       hdmi_tx_clk_n,
+  output logic [2:0] hdmi_tx_p,
+  output logic [2:0] hdmi_tx_n,
+
+  // HDMI hot-plug detect: ball AB13, bank 13 (2.5 V), LVCMOS25, high while a
+  // sink is attached, asynchronous; reported in SYS_CLK_STATUS bit
+  // SYS_CLK_HDMI_HPD_BIT of both cores.
+  input  logic       hdmi_tx_hpd,
+
+  // ADAU1761 audio codec I2S, bank 34 (3.3 V), LVCMOS33; FPGA is the master:
+  // ac_mclk U6 (12.288 MHz, ODDR-forwarded aud_clk), ac_bclk T5 (3.072 MHz),
+  // ac_lrclk U5 (48 kHz, low = left), ac_dac_sdata W6 (FPGA -> codec DAC);
+  // BCLK, LRCLK and data leave from IOB flip-flops on aud_clk.
+  output logic       ac_mclk,
+  output logic       ac_bclk,
+  output logic       ac_lrclk,
+  output logic       ac_dac_sdata,
+
+  // Codec control I2C (ADAU1761 at 7-bit address 0x3B), bank 34 (3.3 V),
+  // LVCMOS33, open drain with board pull-ups: scl W5, sda V5; driven by
+  // axi_iic_0 (core 0) through the IOBUFs below.
+  inout  wire        scl,
+  inout  wire        sda,
+
+  // PS/2 from the PIC24 USB-HID host on J15 (keyboard), bank 14 (3.3 V),
+  // LVCMOS33, PULLUP, open collector, asynchronous: ps2_clk W17,
+  // ps2_data N13; receive only (ps2_rx never drives them).
+  input  logic       ps2_clk,
+  input  logic       ps2_data,
+
+  // RTL8211E reset: ball U7, bank 34 (3.3 V), LVCMOS33, active low; held low
+  // (PHY in reset, its safe level) until the Phase 4 network path.
+  output logic       eth_rst_b,
+
+  // DDR3 SDRAM MT41K256M16 (16 bit, one rank), banks 34 and 35 (1.5 V), SSTL15
+  // (differential strobes and clock DIFF_SSTL15); balls and properties come
+  // from the MIG project (third_party/rtlnet/cores/rtlnet_ddr/ip/rtlnet_ddr_mig.prj).
+  inout  wire  [15:0] ddr3_dq,
+  inout  wire  [1:0]  ddr3_dqs_n,
+  inout  wire  [1:0]  ddr3_dqs_p,
+  output logic [14:0] ddr3_addr,
+  output logic [2:0]  ddr3_ba,
+  output logic        ddr3_ras_n,
+  output logic        ddr3_cas_n,
+  output logic        ddr3_we_n,
+  output logic        ddr3_reset_n,
+  output logic [0:0]  ddr3_ck_p,
+  output logic [0:0]  ddr3_ck_n,
+  output logic [0:0]  ddr3_cke,
+  output logic [1:0]  ddr3_dm,
+  output logic [0:0]  ddr3_odt
+);
+
+  // ---------------------------------------------------------------------------
+  // Constants
+  // ---------------------------------------------------------------------------
+  localparam int          CPU_CLK_HZ  = 100_000_000;
+  localparam int          AW          = 32;
+  // Window bases: mirror fpga/bd/c64_bd.tcl (namespace c64_bd WIN0_BASE, WIN1_BASE).
+  localparam logic [31:0] WIN0_BASE   = 32'h4400_0000;
+  localparam logic [31:0] WIN1_BASE   = 32'h44A0_0000;
+  // Window 0 slots.
+  localparam int          NUM_SLV0    = 4;
+  localparam int          S0_SYS      = 0;
+  localparam int          S0_AUD      = 1;
+  localparam int          S0_VID      = 2;
+  localparam int          S0_PS2      = 3;
+  localparam logic [NUM_SLV0*AW-1:0] SLAVE0_BASE = {
+    WIN0_BASE + WIN_PS2_OFS,         // 3 PS2
+    WIN0_BASE + WIN_VID_OFS,         // 2 VID
+    WIN0_BASE + WIN_AUD_OFS,         // 1 AUD
+    WIN0_BASE + WIN_SYS_OFS          // 0 SYS
+  };
+  localparam logic [NUM_SLV0*AW-1:0] SLAVE0_SIZE = {NUM_SLV0{WIN_BLOCK_SIZE}};
+  // Window 1 slots (RTLNet layout).
+  localparam int          NUM_SLV1    = 5;
+  localparam int          S1_SYS      = 0;
+  localparam int          S1_MAC      = 1;
+  localparam int          S1_MDIO     = 2;
+  localparam int          S1_ARB      = 3;
+  localparam int          S1_PROT     = 4;
+  localparam logic [NUM_SLV1*AW-1:0] SLAVE1_BASE = {
+    WIN1_BASE + WIN1_PROT_OFS,       // 4 PROTOCOL (stub until Phase 4)
+    WIN1_BASE + WIN1_ARB_OFS,        // 3 ARBITER
+    WIN1_BASE + WIN1_MDIO_OFS,       // 2 MDIO (stub until Phase 4)
+    WIN1_BASE + WIN1_MAC_OFS,        // 1 MAC (stub until Phase 4)
+    WIN1_BASE + WIN1_SYS_OFS         // 0 SYS
+  };
+  localparam logic [NUM_SLV1*AW-1:0] SLAVE1_SIZE = {
+    WIN1_PROT_SIZE, WIN1_SLOT_SIZE, WIN1_SLOT_SIZE, WIN1_SLOT_SIZE, WIN1_SLOT_SIZE};
+  localparam logic [NUM_SLV1-1:0] STUB1_MASK = 5'b1_0110;   // PROTOCOL, MDIO, MAC
+  localparam int          STUB_ADDR_W = 12;                 // rtlnet_axil_slave width of a stub slot
+  localparam int          ARB_ADDR_W  = 12;                 // rtlnet_axi_arbiter register port width
+  // DDR3 path (RTLNet values).
+  localparam int          DDR_ADDR_W  = 29;                 // 512 MiB
+  localparam int          DDR_DATA_W  = 128;
+  localparam int          ARB_ID_W    = 1;                  // one master, no IDs: one constant ID bit
+  localparam int          DDR_ID_W    = ARB_ID_W + 1;       // arbiter memory-side ID (IDX_W = 1)
+  localparam int          DDR_BURST_MAX = 16;               // beats; the caches issue 1-beat 128-bit lines
+  // Status levels into SYS_CLK_STATUS (bit n = c64_pkg SYS_CLK_*_BIT n).
+  localparam int          CLK_STATUS_W = SYS_CLK_ETH_LINK_BIT + 1;
+  // TMDS clock-lane word and serializer width.
+  localparam int          TMDS_W      = 10;
+  localparam int          TMDS_LANES  = 4;                  // 3 data + clock
+
+  // ---------------------------------------------------------------------------
+  // Clocks and resets
+  // ---------------------------------------------------------------------------
+  logic clkfb;
+  logic clkfb_bufg;
+  logic clk200_mmcm;
+  logic cpu_clk_mmcm;
+  logic ddr_sys_clk_mmcm;
+  logic clk200;                // 200 MHz: MIG IDELAYCTRL reference
+  logic cpu_clk;               // 100 MHz: both CPUs, register windows, system registers
+  logic ddr_sys_clk;           // 100 MHz: MIG PLL input
+  logic mmcm_locked;           // system MMCM, asynchronous
+  logic pix_clkfb;
+  logic pix_clkfb_bufg;
+  logic pix_clk_mmcm;
+  logic pix_clk_x5_mmcm;
+  logic pix_clk;               // 74.25 MHz: video timing, scan-out, TMDS encoding
+  logic pix_clk_x5;            // 371.25 MHz: OSERDESE2 CLK (DDR, 10 bits per pix_clk)
+  logic pix_locked;            // pixel MMCM, asynchronous
+  logic aud_clkfb;
+  logic aud_clkfb_bufg;
+  logic aud_clk_mmcm;
+  logic aud_clk;               // 12.288 MHz: I2S transmitter, MCLK forwarding
+  logic aud_locked;            // audio MMCM, asynchronous
+  logic rst_arstn;             // board reset assertion: button or system MMCM unlocked
+  logic pix_arstn;
+  logic aud_arstn;
+  logic cpu_resetn_sync;
+  logic pix_resetn;
+  logic aud_resetn;
+  logic ui_clk;                // 100 MHz: MIG user clock, DDR3 AXI4 side, arbiter datapath
+  logic ui_resetn_mig;         // MIG ui reset, active low, synchronous to ui_clk
+  logic ddr_resetn_sync;       // ui_clk reset chain of rst_arstn
+  logic ddr_resetn;            // ui_clk reset: ddr_resetn_sync and the MIG ui reset
+  logic ddr_calib;             // init_calib_complete, ui_clk domain
+
+  // ---------------------------------------------------------------------------
+  // Block design ports
+  // ---------------------------------------------------------------------------
+  logic [7:0]  irq0;
+  logic [7:0]  irq1;
+  logic        iic_scl_i;
+  logic        iic_scl_o;
+  logic        iic_scl_t;
+  logic        iic_sda_i;
+  logic        iic_sda_o;
+  logic        iic_sda_t;
+  logic [FB_WORD_ADDR_W+1:0] fb_bram_addr;   // byte address, 18 bits (BD FB_BRAM_addr[17:0])
+  logic        fb_bram_en;
+  logic [3:0]  fb_bram_we;
+  logic [31:0] fb_bram_din;
+  logic [31:0] fb_bram_dout;
+
+  // Core 0 and core 1 register masters (AXI4-Lite, cpu_clk).
+  logic [31:0] c0_awaddr;
+  logic        c0_awvalid;
+  logic        c0_awready;
+  logic [31:0] c0_wdata;
+  logic [3:0]  c0_wstrb;
+  logic        c0_wvalid;
+  logic        c0_wready;
+  logic [1:0]  c0_bresp;
+  logic        c0_bvalid;
+  logic        c0_bready;
+  logic [31:0] c0_araddr;
+  logic        c0_arvalid;
+  logic        c0_arready;
+  logic [31:0] c0_rdata;
+  logic [1:0]  c0_rresp;
+  logic        c0_rvalid;
+  logic        c0_rready;
+  logic [31:0] c1_awaddr;
+  logic        c1_awvalid;
+  logic        c1_awready;
+  logic [31:0] c1_wdata;
+  logic [3:0]  c1_wstrb;
+  logic        c1_wvalid;
+  logic        c1_wready;
+  logic [1:0]  c1_bresp;
+  logic        c1_bvalid;
+  logic        c1_bready;
+  logic [31:0] c1_araddr;
+  logic        c1_arvalid;
+  logic        c1_arready;
+  logic [31:0] c1_rdata;
+  logic [1:0]  c1_rresp;
+  logic        c1_rvalid;
+  logic        c1_rready;
+
+  // Decoder 0 slave side.
+  logic [NUM_SLV0*AW-1:0] d0_awaddr;
+  logic [NUM_SLV0-1:0]    d0_awvalid;
+  logic [NUM_SLV0-1:0]    d0_awready;
+  logic [NUM_SLV0*32-1:0] d0_wdata;
+  logic [NUM_SLV0*4-1:0]  d0_wstrb;
+  logic [NUM_SLV0-1:0]    d0_wvalid;
+  logic [NUM_SLV0-1:0]    d0_wready;
+  logic [NUM_SLV0*2-1:0]  d0_bresp;
+  logic [NUM_SLV0-1:0]    d0_bvalid;
+  logic [NUM_SLV0-1:0]    d0_bready;
+  logic [NUM_SLV0*AW-1:0] d0_araddr;
+  logic [NUM_SLV0-1:0]    d0_arvalid;
+  logic [NUM_SLV0-1:0]    d0_arready;
+  logic [NUM_SLV0*32-1:0] d0_rdata;
+  logic [NUM_SLV0*2-1:0]  d0_rresp;
+  logic [NUM_SLV0-1:0]    d0_rvalid;
+  logic [NUM_SLV0-1:0]    d0_rready;
+  // Decoder 1 slave side.
+  logic [NUM_SLV1*AW-1:0] d1_awaddr;
+  logic [NUM_SLV1-1:0]    d1_awvalid;
+  logic [NUM_SLV1-1:0]    d1_awready;
+  logic [NUM_SLV1*32-1:0] d1_wdata;
+  logic [NUM_SLV1*4-1:0]  d1_wstrb;
+  logic [NUM_SLV1-1:0]    d1_wvalid;
+  logic [NUM_SLV1-1:0]    d1_wready;
+  logic [NUM_SLV1*2-1:0]  d1_bresp;
+  logic [NUM_SLV1-1:0]    d1_bvalid;
+  logic [NUM_SLV1-1:0]    d1_bready;
+  logic [NUM_SLV1*AW-1:0] d1_araddr;
+  logic [NUM_SLV1-1:0]    d1_arvalid;
+  logic [NUM_SLV1-1:0]    d1_arready;
+  logic [NUM_SLV1*32-1:0] d1_rdata;
+  logic [NUM_SLV1*2-1:0]  d1_rresp;
+  logic [NUM_SLV1-1:0]    d1_rvalid;
+  logic [NUM_SLV1-1:0]    d1_rready;
+
+  // CPU DDR3 master (cpu_clk, 128-bit, no IDs), bridge and arbiter memory side.
+  logic [31:0]           cpu_ddr_awaddr;
+  logic [7:0]            cpu_ddr_awlen;
+  logic [2:0]            cpu_ddr_awsize;
+  logic [1:0]            cpu_ddr_awburst;
+  logic                  cpu_ddr_awlock;
+  logic [3:0]            cpu_ddr_awcache;
+  logic [2:0]            cpu_ddr_awprot;
+  logic [3:0]            cpu_ddr_awqos;
+  logic                  cpu_ddr_awvalid;
+  logic                  cpu_ddr_awready;
+  logic [127:0]          cpu_ddr_wdata;
+  logic [15:0]           cpu_ddr_wstrb;
+  logic                  cpu_ddr_wlast;
+  logic                  cpu_ddr_wvalid;
+  logic                  cpu_ddr_wready;
+  logic [1:0]            cpu_ddr_bresp;
+  logic                  cpu_ddr_bvalid;
+  logic                  cpu_ddr_bready;
+  logic [31:0]           cpu_ddr_araddr;
+  logic [7:0]            cpu_ddr_arlen;
+  logic [2:0]            cpu_ddr_arsize;
+  logic [1:0]            cpu_ddr_arburst;
+  logic                  cpu_ddr_arlock;
+  logic [3:0]            cpu_ddr_arcache;
+  logic [2:0]            cpu_ddr_arprot;
+  logic [3:0]            cpu_ddr_arqos;
+  logic                  cpu_ddr_arvalid;
+  logic                  cpu_ddr_arready;
+  logic [127:0]          cpu_ddr_rdata;
+  logic [1:0]            cpu_ddr_rresp;
+  logic                  cpu_ddr_rlast;
+  logic                  cpu_ddr_rvalid;
+  logic                  cpu_ddr_rready;
+
+  logic [ARB_ID_W-1:0]     br_awid;
+  logic [DDR_ADDR_W-1:0]   br_awaddr;
+  logic [7:0]              br_awlen;
+  logic [2:0]              br_awsize;
+  logic [1:0]              br_awburst;
+  logic                    br_awvalid;
+  logic                    br_awready;
+  logic [DDR_DATA_W-1:0]   br_wdata;
+  logic [DDR_DATA_W/8-1:0] br_wstrb;
+  logic                    br_wlast;
+  logic                    br_wvalid;
+  logic                    br_wready;
+  logic [ARB_ID_W-1:0]     br_bid;
+  logic [1:0]              br_bresp;
+  logic                    br_bvalid;
+  logic                    br_bready;
+  logic [ARB_ID_W-1:0]     br_arid;
+  logic [DDR_ADDR_W-1:0]   br_araddr;
+  logic [7:0]              br_arlen;
+  logic [2:0]              br_arsize;
+  logic [1:0]              br_arburst;
+  logic                    br_arvalid;
+  logic                    br_arready;
+  logic [ARB_ID_W-1:0]     br_rid;
+  logic [DDR_DATA_W-1:0]   br_rdata;
+  logic [1:0]              br_rresp;
+  logic                    br_rlast;
+  logic                    br_rvalid;
+  logic                    br_rready;
+
+  logic [DDR_ID_W-1:0]     mem_awid;
+  logic [DDR_ADDR_W-1:0]   mem_awaddr;
+  logic [7:0]              mem_awlen;
+  logic [2:0]              mem_awsize;
+  logic [1:0]              mem_awburst;
+  logic                    mem_awlock;
+  logic [3:0]              mem_awcache;
+  logic [2:0]              mem_awprot;
+  logic [3:0]              mem_awqos;
+  logic                    mem_awvalid;
+  logic                    mem_awready;
+  logic [DDR_DATA_W-1:0]   mem_wdata;
+  logic [DDR_DATA_W/8-1:0] mem_wstrb;
+  logic                    mem_wlast;
+  logic                    mem_wvalid;
+  logic                    mem_wready;
+  logic [DDR_ID_W-1:0]     mem_bid;
+  logic [1:0]              mem_bresp;
+  logic                    mem_bvalid;
+  logic                    mem_bready;
+  logic [DDR_ID_W-1:0]     mem_arid;
+  logic [DDR_ADDR_W-1:0]   mem_araddr;
+  logic [7:0]              mem_arlen;
+  logic [2:0]              mem_arsize;
+  logic [1:0]              mem_arburst;
+  logic                    mem_arlock;
+  logic [3:0]              mem_arcache;
+  logic [2:0]              mem_arprot;
+  logic [3:0]              mem_arqos;
+  logic                    mem_arvalid;
+  logic                    mem_arready;
+  logic [DDR_ID_W-1:0]     mem_rid;
+  logic [DDR_DATA_W-1:0]   mem_rdata;
+  logic [1:0]              mem_rresp;
+  logic                    mem_rlast;
+  logic                    mem_rvalid;
+  logic                    mem_rready;
+
+  // ---------------------------------------------------------------------------
+  // Block status
+  // ---------------------------------------------------------------------------
+  logic                    aud_irq;
+  logic                    vid_irq;
+  logic                    ps2_irq;
+  logic [CLK_STATUS_W-1:0] clk_status_async;
+  logic [CLK_STATUS_W-1:0] clk_status;        // cpu_clk, synchronized
+  logic [7:0]              led0;              // core 0 SYS_LED
+  logic [7:0]              led1;              // core 1 SYS_LED
+  logic [TMDS_W-1:0]       tmds_word [TMDS_LANES];   // 0 blue, 1 green, 2 red, 3 clock
+  logic [TMDS_LANES-1:0]   tmds_ser;          // serializer outputs, lane order as tmds_word
+  logic                    aud_bclk_q;
+  logic                    aud_lrclk_q;
+  logic                    aud_sdata_q;
+
+  // ---------------------------------------------------------------------------
+  // System MMCM: RTLNet's configuration, VCO = 100 MHz x 10 = 1000 MHz.
+  // CLKOUT2 /5 = 200 MHz, CLKOUT5 /10 = 100 MHz, CLKOUT6 /10 = 100 MHz; CLKOUT0
+  // /8, CLKOUT1 /8 at 90 deg, CLKOUT3 /16 and CLKOUT4 /20 are kept for the
+  // Phase 4 network clocks and left unconnected (no BUFG). RST tied low: the
+  // oscillator runs before configuration ends, and the button resets logic,
+  // not the MMCM.
+  // ---------------------------------------------------------------------------
+  MMCME2_ADV #(
+    .BANDWIDTH            ("OPTIMIZED"),
+    .COMPENSATION         ("ZHOLD"),
+    .STARTUP_WAIT         ("FALSE"),
+    .DIVCLK_DIVIDE        (1),
+    .CLKFBOUT_MULT_F      (10.000),
+    .CLKFBOUT_PHASE       (0.000),
+    .CLKFBOUT_USE_FINE_PS ("FALSE"),
+    .CLKIN1_PERIOD        (10.000),
+    .CLKIN2_PERIOD        (10.000),
+    .REF_JITTER1          (0.010),
+    .REF_JITTER2          (0.010),
+    .CLKOUT4_CASCADE      ("FALSE"),
+    .CLKOUT0_DIVIDE_F     (8.000),
+    .CLKOUT0_PHASE        (0.000),
+    .CLKOUT0_DUTY_CYCLE   (0.500),
+    .CLKOUT0_USE_FINE_PS  ("FALSE"),
+    .CLKOUT1_DIVIDE       (8),
+    .CLKOUT1_PHASE        (90.000),
+    .CLKOUT1_DUTY_CYCLE   (0.500),
+    .CLKOUT1_USE_FINE_PS  ("FALSE"),
+    .CLKOUT2_DIVIDE       (5),
+    .CLKOUT2_PHASE        (0.000),
+    .CLKOUT2_DUTY_CYCLE   (0.500),
+    .CLKOUT2_USE_FINE_PS  ("FALSE"),
+    .CLKOUT3_DIVIDE       (16),
+    .CLKOUT3_PHASE        (0.000),
+    .CLKOUT3_DUTY_CYCLE   (0.500),
+    .CLKOUT3_USE_FINE_PS  ("FALSE"),
+    .CLKOUT4_DIVIDE       (20),
+    .CLKOUT4_PHASE        (0.000),
+    .CLKOUT4_DUTY_CYCLE   (0.500),
+    .CLKOUT4_USE_FINE_PS  ("FALSE"),
+    .CLKOUT5_DIVIDE       (10),
+    .CLKOUT5_PHASE        (0.000),
+    .CLKOUT5_DUTY_CYCLE   (0.500),
+    .CLKOUT5_USE_FINE_PS  ("FALSE"),
+    .CLKOUT6_DIVIDE       (10),
+    .CLKOUT6_PHASE        (0.000),
+    .CLKOUT6_DUTY_CYCLE   (0.500),
+    .CLKOUT6_USE_FINE_PS  ("FALSE")
+  ) u_mmcm_sys (
+    .CLKIN1       (sysclk),
+    .CLKIN2       (1'b0),
+    .CLKINSEL     (1'b1),
+    .CLKFBIN      (clkfb_bufg),
+    .CLKFBOUT     (clkfb),
+    .CLKFBOUTB    (),
+    .CLKOUT0      (),
+    .CLKOUT0B     (),
+    .CLKOUT1      (),
+    .CLKOUT1B     (),
+    .CLKOUT2      (clk200_mmcm),
+    .CLKOUT2B     (),
+    .CLKOUT3      (),
+    .CLKOUT3B     (),
+    .CLKOUT4      (),
+    .CLKOUT5      (cpu_clk_mmcm),
+    .CLKOUT6      (ddr_sys_clk_mmcm),
+    .LOCKED       (mmcm_locked),
+    .RST          (1'b0),
+    .PWRDWN       (1'b0),
+    .DADDR        (7'd0),
+    .DCLK         (1'b0),
+    .DEN          (1'b0),
+    .DI           (16'd0),
+    .DWE          (1'b0),
+    .DO           (),
+    .DRDY         (),
+    .PSCLK        (1'b0),
+    .PSEN         (1'b0),
+    .PSINCDEC     (1'b0),
+    .PSDONE       (),
+    .CLKINSTOPPED (),
+    .CLKFBSTOPPED ()
+  );
+
+  BUFG u_bufg_fb     (.I(clkfb),            .O(clkfb_bufg));
+  BUFG u_bufg_clk200 (.I(clk200_mmcm),      .O(clk200));
+  BUFG u_bufg_cpu    (.I(cpu_clk_mmcm),     .O(cpu_clk));
+  BUFG u_bufg_ddrsys (.I(ddr_sys_clk_mmcm), .O(ddr_sys_clk));
+
+  // ---------------------------------------------------------------------------
+  // Pixel MMCM: cpu_clk in (10 ns), PFD 100/5 = 20 MHz, VCO 20 x 37.125 =
+  // 742.5 MHz (600..1200 MHz for -1). CLKOUT0 742.5/10 = 74.25 MHz, CLKOUT1
+  // 742.5/2 = 371.25 MHz: TMDS bit rate 742.5 Mb/s = 10 x 74.25 MHz, DDR on
+  // CLK (inside the -1 HR-bank OSERDESE2 DDR limit). Held in reset while the
+  // system MMCM (its input clock) is unlocked; RST is the primitive's
+  // asynchronous reset (vendor primitive, fpga.md async-reset exception).
+  // ---------------------------------------------------------------------------
+  MMCME2_ADV #(
+    .BANDWIDTH            ("OPTIMIZED"),
+    .COMPENSATION         ("ZHOLD"),
+    .STARTUP_WAIT         ("FALSE"),
+    .DIVCLK_DIVIDE        (5),
+    .CLKFBOUT_MULT_F      (37.125),
+    .CLKFBOUT_PHASE       (0.000),
+    .CLKFBOUT_USE_FINE_PS ("FALSE"),
+    .CLKIN1_PERIOD        (10.000),
+    .CLKIN2_PERIOD        (10.000),
+    .REF_JITTER1          (0.010),
+    .REF_JITTER2          (0.010),
+    .CLKOUT4_CASCADE      ("FALSE"),
+    .CLKOUT0_DIVIDE_F     (10.000),
+    .CLKOUT0_PHASE        (0.000),
+    .CLKOUT0_DUTY_CYCLE   (0.500),
+    .CLKOUT0_USE_FINE_PS  ("FALSE"),
+    .CLKOUT1_DIVIDE       (2),
+    .CLKOUT1_PHASE        (0.000),
+    .CLKOUT1_DUTY_CYCLE   (0.500),
+    .CLKOUT1_USE_FINE_PS  ("FALSE")
+  ) u_mmcm_pix (
+    .CLKIN1       (cpu_clk),
+    .CLKIN2       (1'b0),
+    .CLKINSEL     (1'b1),
+    .CLKFBIN      (pix_clkfb_bufg),
+    .CLKFBOUT     (pix_clkfb),
+    .CLKFBOUTB    (),
+    .CLKOUT0      (pix_clk_mmcm),
+    .CLKOUT0B     (),
+    .CLKOUT1      (pix_clk_x5_mmcm),
+    .CLKOUT1B     (),
+    .CLKOUT2      (),
+    .CLKOUT2B     (),
+    .CLKOUT3      (),
+    .CLKOUT3B     (),
+    .CLKOUT4      (),
+    .CLKOUT5      (),
+    .CLKOUT6      (),
+    .LOCKED       (pix_locked),
+    .RST          (~mmcm_locked),
+    .PWRDWN       (1'b0),
+    .DADDR        (7'd0),
+    .DCLK         (1'b0),
+    .DEN          (1'b0),
+    .DI           (16'd0),
+    .DWE          (1'b0),
+    .DO           (),
+    .DRDY         (),
+    .PSCLK        (1'b0),
+    .PSEN         (1'b0),
+    .PSINCDEC     (1'b0),
+    .PSDONE       (),
+    .CLKINSTOPPED (),
+    .CLKFBSTOPPED ()
+  );
+
+  BUFG u_bufg_pix_fb (.I(pix_clkfb),       .O(pix_clkfb_bufg));
+  BUFG u_bufg_pix    (.I(pix_clk_mmcm),    .O(pix_clk));
+  BUFG u_bufg_pix_x5 (.I(pix_clk_x5_mmcm), .O(pix_clk_x5));
+
+  // ---------------------------------------------------------------------------
+  // Audio MMCM: cpu_clk in, PFD 20 MHz, VCO 20 x 48 = 960 MHz, CLKOUT0
+  // 960/78.125 = 12.288 MHz exactly (fractional divide in 1/8 steps).
+  // Reset as the pixel MMCM.
+  // ---------------------------------------------------------------------------
+  MMCME2_ADV #(
+    .BANDWIDTH            ("OPTIMIZED"),
+    .COMPENSATION         ("ZHOLD"),
+    .STARTUP_WAIT         ("FALSE"),
+    .DIVCLK_DIVIDE        (5),
+    .CLKFBOUT_MULT_F      (48.000),
+    .CLKFBOUT_PHASE       (0.000),
+    .CLKFBOUT_USE_FINE_PS ("FALSE"),
+    .CLKIN1_PERIOD        (10.000),
+    .CLKIN2_PERIOD        (10.000),
+    .REF_JITTER1          (0.010),
+    .REF_JITTER2          (0.010),
+    .CLKOUT4_CASCADE      ("FALSE"),
+    .CLKOUT0_DIVIDE_F     (78.125),
+    .CLKOUT0_PHASE        (0.000),
+    .CLKOUT0_DUTY_CYCLE   (0.500),
+    .CLKOUT0_USE_FINE_PS  ("FALSE")
+  ) u_mmcm_aud (
+    .CLKIN1       (cpu_clk),
+    .CLKIN2       (1'b0),
+    .CLKINSEL     (1'b1),
+    .CLKFBIN      (aud_clkfb_bufg),
+    .CLKFBOUT     (aud_clkfb),
+    .CLKFBOUTB    (),
+    .CLKOUT0      (aud_clk_mmcm),
+    .CLKOUT0B     (),
+    .CLKOUT1      (),
+    .CLKOUT1B     (),
+    .CLKOUT2      (),
+    .CLKOUT2B     (),
+    .CLKOUT3      (),
+    .CLKOUT3B     (),
+    .CLKOUT4      (),
+    .CLKOUT5      (),
+    .CLKOUT6      (),
+    .LOCKED       (aud_locked),
+    .RST          (~mmcm_locked),
+    .PWRDWN       (1'b0),
+    .DADDR        (7'd0),
+    .DCLK         (1'b0),
+    .DEN          (1'b0),
+    .DI           (16'd0),
+    .DWE          (1'b0),
+    .DO           (),
+    .DRDY         (),
+    .PSCLK        (1'b0),
+    .PSEN         (1'b0),
+    .PSINCDEC     (1'b0),
+    .PSDONE       (),
+    .CLKINSTOPPED (),
+    .CLKFBSTOPPED ()
+  );
+
+  BUFG u_bufg_aud_fb (.I(aud_clkfb),    .O(aud_clkfb_bufg));
+  BUFG u_bufg_aud    (.I(aud_clk_mmcm), .O(aud_clk));
+
+  // The one reset assertion: button pressed or system MMCM not locked. The
+  // pixel and audio domains additionally wait for their own MMCM.
+  assign rst_arstn = cpu_resetn & mmcm_locked;
+  assign pix_arstn = rst_arstn & pix_locked;
+  assign aud_arstn = rst_arstn & aud_locked;
+
+  rtlnet_reset_sync u_rst_cpu (.clk(cpu_clk), .arstn(rst_arstn), .resetn(cpu_resetn_sync));
+  rtlnet_reset_sync u_rst_pix (.clk(pix_clk), .arstn(pix_arstn), .resetn(pix_resetn));
+  rtlnet_reset_sync u_rst_aud (.clk(aud_clk), .arstn(aud_arstn), .resetn(aud_resetn));
+
+  // Reset release into ui_clk (RTLNet): the board reset assertion enters the
+  // chain; the MIG ui reset (a ui_clk flop output) is ANDed into the released,
+  // synchronous reset.
+  rtlnet_reset_sync u_rst_ddr (.clk(ui_clk), .arstn(rst_arstn), .resetn(ddr_resetn_sync));
+  assign ddr_resetn = ddr_resetn_sync & ui_resetn_mig;
+
+  // Status levels into cpu_clk for both system-register instances: MMCM lock
+  // outputs and the HPD pin are asynchronous, ddr_calib is a ui_clk flop.
+  assign clk_status_async[SYS_CLK_PIX_LOCKED_BIT] = pix_locked;
+  assign clk_status_async[SYS_CLK_DDR_CALIB_BIT]  = ddr_calib;
+  assign clk_status_async[SYS_CLK_AUD_LOCKED_BIT] = aud_locked;
+  assign clk_status_async[SYS_CLK_HDMI_HPD_BIT]   = hdmi_tx_hpd;
+  assign clk_status_async[SYS_CLK_ETH_LINK_BIT]   = 1'b0;          // Phase 4
+  rtlnet_sync #(
+    .WIDTH (CLK_STATUS_W)
+  ) u_sync_status (
+    .clk    (cpu_clk),
+    .resetn (cpu_resetn_sync),
+    .d      (clk_status_async),
+    .q      (clk_status)
+  );
+
+  // ---------------------------------------------------------------------------
+  // Two-core MicroBlaze V block design (fpga/bd/c64_bd.tcl).
+  // FB_BRAM_clk / FB_BRAM_rst are not used: the controller runs on clk
+  // (cpu_clk), the clock of c64_video's port A, and c64_video has its own reset.
+  // ---------------------------------------------------------------------------
+  assign irq0 = {5'b0_0000, ps2_irq, vid_irq, aud_irq};
+  assign irq1 = 8'h00;
+
+  c64_cpu u_cpu (
+    .clk                (cpu_clk),
+    .resetn             (cpu_resetn_sync),
+    .uart_rxd           (uart_tx_in),
+    .uart_txd           (uart_rx_out),
+    .iic_scl_i          (iic_scl_i),
+    .iic_scl_o          (iic_scl_o),
+    .iic_scl_t          (iic_scl_t),
+    .iic_sda_i          (iic_sda_i),
+    .iic_sda_o          (iic_sda_o),
+    .iic_sda_t          (iic_sda_t),
+    .irq0               (irq0),
+    .irq1               (irq1),
+    .FB_BRAM_addr       (fb_bram_addr),
+    .FB_BRAM_clk        (),
+    .FB_BRAM_din        (fb_bram_din),
+    .FB_BRAM_dout       (fb_bram_dout),
+    .FB_BRAM_en         (fb_bram_en),
+    .FB_BRAM_rst        (),
+    .FB_BRAM_we         (fb_bram_we),
+    .M_AXI_C64_awaddr   (c0_awaddr),
+    .M_AXI_C64_awprot   (),
+    .M_AXI_C64_awvalid  (c0_awvalid),
+    .M_AXI_C64_awready  (c0_awready),
+    .M_AXI_C64_wdata    (c0_wdata),
+    .M_AXI_C64_wstrb    (c0_wstrb),
+    .M_AXI_C64_wvalid   (c0_wvalid),
+    .M_AXI_C64_wready   (c0_wready),
+    .M_AXI_C64_bresp    (c0_bresp),
+    .M_AXI_C64_bvalid   (c0_bvalid),
+    .M_AXI_C64_bready   (c0_bready),
+    .M_AXI_C64_araddr   (c0_araddr),
+    .M_AXI_C64_arprot   (),
+    .M_AXI_C64_arvalid  (c0_arvalid),
+    .M_AXI_C64_arready  (c0_arready),
+    .M_AXI_C64_rdata    (c0_rdata),
+    .M_AXI_C64_rresp    (c0_rresp),
+    .M_AXI_C64_rvalid   (c0_rvalid),
+    .M_AXI_C64_rready   (c0_rready),
+    .M_AXI_DRV_awaddr   (c1_awaddr),
+    .M_AXI_DRV_awprot   (),
+    .M_AXI_DRV_awvalid  (c1_awvalid),
+    .M_AXI_DRV_awready  (c1_awready),
+    .M_AXI_DRV_wdata    (c1_wdata),
+    .M_AXI_DRV_wstrb    (c1_wstrb),
+    .M_AXI_DRV_wvalid   (c1_wvalid),
+    .M_AXI_DRV_wready   (c1_wready),
+    .M_AXI_DRV_bresp    (c1_bresp),
+    .M_AXI_DRV_bvalid   (c1_bvalid),
+    .M_AXI_DRV_bready   (c1_bready),
+    .M_AXI_DRV_araddr   (c1_araddr),
+    .M_AXI_DRV_arprot   (),
+    .M_AXI_DRV_arvalid  (c1_arvalid),
+    .M_AXI_DRV_arready  (c1_arready),
+    .M_AXI_DRV_rdata    (c1_rdata),
+    .M_AXI_DRV_rresp    (c1_rresp),
+    .M_AXI_DRV_rvalid   (c1_rvalid),
+    .M_AXI_DRV_rready   (c1_rready),
+    .S_AXIS_ETH_tdata   (64'd0),
+    .S_AXIS_ETH_tkeep   (8'd0),
+    .S_AXIS_ETH_tlast   (1'b0),
+    .S_AXIS_ETH_tvalid  (1'b0),
+    .S_AXIS_ETH_tready  (),
+    .M_AXIS_ETH_tdata   (),
+    .M_AXIS_ETH_tkeep   (),
+    .M_AXIS_ETH_tlast   (),
+    .M_AXIS_ETH_tvalid  (),
+    .M_AXIS_ETH_tready  (1'b1),
+    .M_AXI_DDR_awaddr   (cpu_ddr_awaddr),
+    .M_AXI_DDR_awlen    (cpu_ddr_awlen),
+    .M_AXI_DDR_awsize   (cpu_ddr_awsize),
+    .M_AXI_DDR_awburst  (cpu_ddr_awburst),
+    .M_AXI_DDR_awlock   (cpu_ddr_awlock),
+    .M_AXI_DDR_awcache  (cpu_ddr_awcache),
+    .M_AXI_DDR_awprot   (cpu_ddr_awprot),
+    .M_AXI_DDR_awqos    (cpu_ddr_awqos),
+    .M_AXI_DDR_awvalid  (cpu_ddr_awvalid),
+    .M_AXI_DDR_awready  (cpu_ddr_awready),
+    .M_AXI_DDR_wdata    (cpu_ddr_wdata),
+    .M_AXI_DDR_wstrb    (cpu_ddr_wstrb),
+    .M_AXI_DDR_wlast    (cpu_ddr_wlast),
+    .M_AXI_DDR_wvalid   (cpu_ddr_wvalid),
+    .M_AXI_DDR_wready   (cpu_ddr_wready),
+    .M_AXI_DDR_bresp    (cpu_ddr_bresp),
+    .M_AXI_DDR_bvalid   (cpu_ddr_bvalid),
+    .M_AXI_DDR_bready   (cpu_ddr_bready),
+    .M_AXI_DDR_araddr   (cpu_ddr_araddr),
+    .M_AXI_DDR_arlen    (cpu_ddr_arlen),
+    .M_AXI_DDR_arsize   (cpu_ddr_arsize),
+    .M_AXI_DDR_arburst  (cpu_ddr_arburst),
+    .M_AXI_DDR_arlock   (cpu_ddr_arlock),
+    .M_AXI_DDR_arcache  (cpu_ddr_arcache),
+    .M_AXI_DDR_arprot   (cpu_ddr_arprot),
+    .M_AXI_DDR_arqos    (cpu_ddr_arqos),
+    .M_AXI_DDR_arvalid  (cpu_ddr_arvalid),
+    .M_AXI_DDR_arready  (cpu_ddr_arready),
+    .M_AXI_DDR_rdata    (cpu_ddr_rdata),
+    .M_AXI_DDR_rresp    (cpu_ddr_rresp),
+    .M_AXI_DDR_rlast    (cpu_ddr_rlast),
+    .M_AXI_DDR_rvalid   (cpu_ddr_rvalid),
+    .M_AXI_DDR_rready   (cpu_ddr_rready)
+  );
+
+  // Codec I2C pads: the only drivers of scl/sda; *_t = 1 releases the line.
+  IOBUF u_scl_iobuf (.I(iic_scl_o), .T(iic_scl_t), .O(iic_scl_i), .IO(scl));
+  IOBUF u_sda_iobuf (.I(iic_sda_o), .T(iic_sda_t), .O(iic_sda_i), .IO(sda));
+
+  // ---------------------------------------------------------------------------
+  // Register window 0 (core 0): SYS, AUD, VID, PS2.
+  // ---------------------------------------------------------------------------
+  rtlnet_axil_decoder #(
+    .N          (NUM_SLV0),
+    .ADDR_W     (AW),
+    .SLAVE_BASE (SLAVE0_BASE),
+    .SLAVE_SIZE (SLAVE0_SIZE)
+  ) u_dec0 (
+    .aclk          (cpu_clk),
+    .aresetn       (cpu_resetn_sync),
+    .s_axi_awaddr  (c0_awaddr),
+    .s_axi_awvalid (c0_awvalid),
+    .s_axi_awready (c0_awready),
+    .s_axi_wdata   (c0_wdata),
+    .s_axi_wstrb   (c0_wstrb),
+    .s_axi_wvalid  (c0_wvalid),
+    .s_axi_wready  (c0_wready),
+    .s_axi_bresp   (c0_bresp),
+    .s_axi_bvalid  (c0_bvalid),
+    .s_axi_bready  (c0_bready),
+    .s_axi_araddr  (c0_araddr),
+    .s_axi_arvalid (c0_arvalid),
+    .s_axi_arready (c0_arready),
+    .s_axi_rdata   (c0_rdata),
+    .s_axi_rresp   (c0_rresp),
+    .s_axi_rvalid  (c0_rvalid),
+    .s_axi_rready  (c0_rready),
+    .m_axi_awaddr  (d0_awaddr),
+    .m_axi_awvalid (d0_awvalid),
+    .m_axi_awready (d0_awready),
+    .m_axi_wdata   (d0_wdata),
+    .m_axi_wstrb   (d0_wstrb),
+    .m_axi_wvalid  (d0_wvalid),
+    .m_axi_wready  (d0_wready),
+    .m_axi_bresp   (d0_bresp),
+    .m_axi_bvalid  (d0_bvalid),
+    .m_axi_bready  (d0_bready),
+    .m_axi_araddr  (d0_araddr),
+    .m_axi_arvalid (d0_arvalid),
+    .m_axi_arready (d0_arready),
+    .m_axi_rdata   (d0_rdata),
+    .m_axi_rresp   (d0_rresp),
+    .m_axi_rvalid  (d0_rvalid),
+    .m_axi_rready  (d0_rready)
+  );
+
+  // Core 0 system registers (window SYS).
+  c64_sysregs #(
+    .BUILD_ID    (BUILD_ID),
+    .BUILD_DIRTY (BUILD_DIRTY),
+    .CORE_INDEX  (8'd0)
+  ) u_sysregs0 (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .s_axi_awaddr  (d0_awaddr[S0_SYS*AW +: REG_ADDR_W]),
+    .s_axi_awvalid (d0_awvalid[S0_SYS]),
+    .s_axi_awready (d0_awready[S0_SYS]),
+    .s_axi_wdata   (d0_wdata[S0_SYS*32 +: 32]),
+    .s_axi_wstrb   (d0_wstrb[S0_SYS*4 +: 4]),
+    .s_axi_wvalid  (d0_wvalid[S0_SYS]),
+    .s_axi_wready  (d0_wready[S0_SYS]),
+    .s_axi_bresp   (d0_bresp[S0_SYS*2 +: 2]),
+    .s_axi_bvalid  (d0_bvalid[S0_SYS]),
+    .s_axi_bready  (d0_bready[S0_SYS]),
+    .s_axi_araddr  (d0_araddr[S0_SYS*AW +: REG_ADDR_W]),
+    .s_axi_arvalid (d0_arvalid[S0_SYS]),
+    .s_axi_arready (d0_arready[S0_SYS]),
+    .s_axi_rdata   (d0_rdata[S0_SYS*32 +: 32]),
+    .s_axi_rresp   (d0_rresp[S0_SYS*2 +: 2]),
+    .s_axi_rvalid  (d0_rvalid[S0_SYS]),
+    .s_axi_rready  (d0_rready[S0_SYS]),
+    .clk_status    (clk_status),
+    .led           (led0)
+  );
+
+  // Audio output (window AUD): sample FIFO and I2S transmitter.
+  sid_audio_out u_audio (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .s_axi_awaddr  (d0_awaddr[S0_AUD*AW +: REG_ADDR_W]),
+    .s_axi_awvalid (d0_awvalid[S0_AUD]),
+    .s_axi_awready (d0_awready[S0_AUD]),
+    .s_axi_wdata   (d0_wdata[S0_AUD*32 +: 32]),
+    .s_axi_wstrb   (d0_wstrb[S0_AUD*4 +: 4]),
+    .s_axi_wvalid  (d0_wvalid[S0_AUD]),
+    .s_axi_wready  (d0_wready[S0_AUD]),
+    .s_axi_bresp   (d0_bresp[S0_AUD*2 +: 2]),
+    .s_axi_bvalid  (d0_bvalid[S0_AUD]),
+    .s_axi_bready  (d0_bready[S0_AUD]),
+    .s_axi_araddr  (d0_araddr[S0_AUD*AW +: REG_ADDR_W]),
+    .s_axi_arvalid (d0_arvalid[S0_AUD]),
+    .s_axi_arready (d0_arready[S0_AUD]),
+    .s_axi_rdata   (d0_rdata[S0_AUD*32 +: 32]),
+    .s_axi_rresp   (d0_rresp[S0_AUD*2 +: 2]),
+    .s_axi_rvalid  (d0_rvalid[S0_AUD]),
+    .s_axi_rready  (d0_rready[S0_AUD]),
+    .irq           (aud_irq),
+    .aud_clk       (aud_clk),
+    .aud_resetn    (aud_resetn),
+    .aud_bclk_q    (aud_bclk_q),
+    .aud_lrclk_q   (aud_lrclk_q),
+    .aud_sdata_q   (aud_sdata_q)
+  );
+
+  // Video (window VID) with framebuffer port A from the BD.
+  c64_video u_video (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .pix_clk       (pix_clk),
+    .pix_resetn    (pix_resetn),
+    .s_axi_awaddr  (d0_awaddr[S0_VID*AW +: REG_ADDR_W]),
+    .s_axi_awvalid (d0_awvalid[S0_VID]),
+    .s_axi_awready (d0_awready[S0_VID]),
+    .s_axi_wdata   (d0_wdata[S0_VID*32 +: 32]),
+    .s_axi_wstrb   (d0_wstrb[S0_VID*4 +: 4]),
+    .s_axi_wvalid  (d0_wvalid[S0_VID]),
+    .s_axi_wready  (d0_wready[S0_VID]),
+    .s_axi_bresp   (d0_bresp[S0_VID*2 +: 2]),
+    .s_axi_bvalid  (d0_bvalid[S0_VID]),
+    .s_axi_bready  (d0_bready[S0_VID]),
+    .s_axi_araddr  (d0_araddr[S0_VID*AW +: REG_ADDR_W]),
+    .s_axi_arvalid (d0_arvalid[S0_VID]),
+    .s_axi_arready (d0_arready[S0_VID]),
+    .s_axi_rdata   (d0_rdata[S0_VID*32 +: 32]),
+    .s_axi_rresp   (d0_rresp[S0_VID*2 +: 2]),
+    .s_axi_rvalid  (d0_rvalid[S0_VID]),
+    .s_axi_rready  (d0_rready[S0_VID]),
+    .fb_bram_addr  (fb_bram_addr),
+    .fb_bram_en    (fb_bram_en),
+    .fb_bram_we    (fb_bram_we),
+    .fb_bram_din   (fb_bram_din),
+    .fb_bram_dout  (fb_bram_dout),
+    .irq           (vid_irq),
+    .tmds_ch0      (tmds_word[0]),
+    .tmds_ch1      (tmds_word[1]),
+    .tmds_ch2      (tmds_word[2]),
+    .tmds_clk      (tmds_word[3]),
+    .vid_de        (),
+    .vid_hsync     (),
+    .vid_vsync     (),
+    .vid_rgb       ()
+  );
+
+  // PS/2 keyboard receiver (window PS2).
+  ps2_rx #(
+    .CLK_HZ (CPU_CLK_HZ)
+  ) u_ps2 (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .s_axi_awaddr  (d0_awaddr[S0_PS2*AW +: REG_ADDR_W]),
+    .s_axi_awvalid (d0_awvalid[S0_PS2]),
+    .s_axi_awready (d0_awready[S0_PS2]),
+    .s_axi_wdata   (d0_wdata[S0_PS2*32 +: 32]),
+    .s_axi_wstrb   (d0_wstrb[S0_PS2*4 +: 4]),
+    .s_axi_wvalid  (d0_wvalid[S0_PS2]),
+    .s_axi_wready  (d0_wready[S0_PS2]),
+    .s_axi_bresp   (d0_bresp[S0_PS2*2 +: 2]),
+    .s_axi_bvalid  (d0_bvalid[S0_PS2]),
+    .s_axi_bready  (d0_bready[S0_PS2]),
+    .s_axi_araddr  (d0_araddr[S0_PS2*AW +: REG_ADDR_W]),
+    .s_axi_arvalid (d0_arvalid[S0_PS2]),
+    .s_axi_arready (d0_arready[S0_PS2]),
+    .s_axi_rdata   (d0_rdata[S0_PS2*32 +: 32]),
+    .s_axi_rresp   (d0_rresp[S0_PS2*2 +: 2]),
+    .s_axi_rvalid  (d0_rvalid[S0_PS2]),
+    .s_axi_rready  (d0_rready[S0_PS2]),
+    .ps2_clk       (ps2_clk),
+    .ps2_data      (ps2_data),
+    .irq           (ps2_irq)
+  );
+
+  // ---------------------------------------------------------------------------
+  // Register window 1 (core 1): SYS, ARBITER, and the Phase 4 stubs.
+  // ---------------------------------------------------------------------------
+  rtlnet_axil_decoder #(
+    .N          (NUM_SLV1),
+    .ADDR_W     (AW),
+    .SLAVE_BASE (SLAVE1_BASE),
+    .SLAVE_SIZE (SLAVE1_SIZE)
+  ) u_dec1 (
+    .aclk          (cpu_clk),
+    .aresetn       (cpu_resetn_sync),
+    .s_axi_awaddr  (c1_awaddr),
+    .s_axi_awvalid (c1_awvalid),
+    .s_axi_awready (c1_awready),
+    .s_axi_wdata   (c1_wdata),
+    .s_axi_wstrb   (c1_wstrb),
+    .s_axi_wvalid  (c1_wvalid),
+    .s_axi_wready  (c1_wready),
+    .s_axi_bresp   (c1_bresp),
+    .s_axi_bvalid  (c1_bvalid),
+    .s_axi_bready  (c1_bready),
+    .s_axi_araddr  (c1_araddr),
+    .s_axi_arvalid (c1_arvalid),
+    .s_axi_arready (c1_arready),
+    .s_axi_rdata   (c1_rdata),
+    .s_axi_rresp   (c1_rresp),
+    .s_axi_rvalid  (c1_rvalid),
+    .s_axi_rready  (c1_rready),
+    .m_axi_awaddr  (d1_awaddr),
+    .m_axi_awvalid (d1_awvalid),
+    .m_axi_awready (d1_awready),
+    .m_axi_wdata   (d1_wdata),
+    .m_axi_wstrb   (d1_wstrb),
+    .m_axi_wvalid  (d1_wvalid),
+    .m_axi_wready  (d1_wready),
+    .m_axi_bresp   (d1_bresp),
+    .m_axi_bvalid  (d1_bvalid),
+    .m_axi_bready  (d1_bready),
+    .m_axi_araddr  (d1_araddr),
+    .m_axi_arvalid (d1_arvalid),
+    .m_axi_arready (d1_arready),
+    .m_axi_rdata   (d1_rdata),
+    .m_axi_rresp   (d1_rresp),
+    .m_axi_rvalid  (d1_rvalid),
+    .m_axi_rready  (d1_rready)
+  );
+
+  // Core 1 system registers (RTLNet's SYS slot, 4 KiB; the register file
+  // decodes REG_ADDR_W bits, which inside a 4 KiB slot at a 64 KiB-aligned
+  // base are the in-slot offset).
+  c64_sysregs #(
+    .BUILD_ID    (BUILD_ID),
+    .BUILD_DIRTY (BUILD_DIRTY),
+    .CORE_INDEX  (8'd1)
+  ) u_sysregs1 (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .s_axi_awaddr  (d1_awaddr[S1_SYS*AW +: REG_ADDR_W]),
+    .s_axi_awvalid (d1_awvalid[S1_SYS]),
+    .s_axi_awready (d1_awready[S1_SYS]),
+    .s_axi_wdata   (d1_wdata[S1_SYS*32 +: 32]),
+    .s_axi_wstrb   (d1_wstrb[S1_SYS*4 +: 4]),
+    .s_axi_wvalid  (d1_wvalid[S1_SYS]),
+    .s_axi_wready  (d1_wready[S1_SYS]),
+    .s_axi_bresp   (d1_bresp[S1_SYS*2 +: 2]),
+    .s_axi_bvalid  (d1_bvalid[S1_SYS]),
+    .s_axi_bready  (d1_bready[S1_SYS]),
+    .s_axi_araddr  (d1_araddr[S1_SYS*AW +: REG_ADDR_W]),
+    .s_axi_arvalid (d1_arvalid[S1_SYS]),
+    .s_axi_arready (d1_arready[S1_SYS]),
+    .s_axi_rdata   (d1_rdata[S1_SYS*32 +: 32]),
+    .s_axi_rresp   (d1_rresp[S1_SYS*2 +: 2]),
+    .s_axi_rvalid  (d1_rvalid[S1_SYS]),
+    .s_axi_rready  (d1_rready[S1_SYS]),
+    .clk_status    (clk_status),
+    .led           (led1)
+  );
+
+  // Empty slots: the shared slave bridge with a constant-zero register file
+  // (OKAY, read 0, writes ignored), as RTLNet's stub windows.
+  genvar gs;
+  generate
+    for (gs = 0; gs < NUM_SLV1; gs++) begin : g_stub
+      if (STUB1_MASK[gs]) begin : g_on
+        logic                   stub_wr_en;
+        logic [STUB_ADDR_W-1:0] stub_wr_addr;
+        logic [31:0]            stub_wr_data;
+        logic                   stub_rd_en;
+        logic [STUB_ADDR_W-1:0] stub_rd_addr;
+
+        rtlnet_axil_slave #(
+          .ADDR_W (STUB_ADDR_W)
+        ) u_stub (
+          .s_axi_aclk    (cpu_clk),
+          .s_axi_aresetn (cpu_resetn_sync),
+          .s_axi_awaddr  (d1_awaddr[gs*AW +: STUB_ADDR_W]),
+          .s_axi_awvalid (d1_awvalid[gs]),
+          .s_axi_awready (d1_awready[gs]),
+          .s_axi_wdata   (d1_wdata[gs*32 +: 32]),
+          .s_axi_wstrb   (d1_wstrb[gs*4 +: 4]),
+          .s_axi_wvalid  (d1_wvalid[gs]),
+          .s_axi_wready  (d1_wready[gs]),
+          .s_axi_bresp   (d1_bresp[gs*2 +: 2]),
+          .s_axi_bvalid  (d1_bvalid[gs]),
+          .s_axi_bready  (d1_bready[gs]),
+          .s_axi_araddr  (d1_araddr[gs*AW +: STUB_ADDR_W]),
+          .s_axi_arvalid (d1_arvalid[gs]),
+          .s_axi_arready (d1_arready[gs]),
+          .s_axi_rdata   (d1_rdata[gs*32 +: 32]),
+          .s_axi_rresp   (d1_rresp[gs*2 +: 2]),
+          .s_axi_rvalid  (d1_rvalid[gs]),
+          .s_axi_rready  (d1_rready[gs]),
+          .reg_wr_en     (stub_wr_en),
+          .reg_wr_addr   (stub_wr_addr),
+          .reg_wr_data   (stub_wr_data),
+          .reg_rd_en     (stub_rd_en),
+          .reg_rd_addr   (stub_rd_addr),
+          .reg_rd_data   (32'd0)
+        );
+      end
+    end
+  endgenerate
+
+  // ---------------------------------------------------------------------------
+  // DDR3 path (RTLNet): bridge cpu_clk -> ui_clk, arbiter, MIG.
+  // The BD port has no IDs (ID tied 0); the bridge carries ARB_ID_W bits. The
+  // caches issue 1-beat 128-bit lines, so DDR_BURST_MAX 16 has margin.
+  // ---------------------------------------------------------------------------
+  rtlnet_axi_cdc #(
+    .ADDR_W          (DDR_ADDR_W),
+    .DATA_W          (DDR_DATA_W),
+    .ID_W            (ARB_ID_W),
+    .MAX_BURST_BEATS (DDR_BURST_MAX)
+  ) u_ddr_cdc (
+    .s_clk         (cpu_clk),
+    .s_resetn      (cpu_resetn_sync),
+    .s_axi_awid    (1'b0),
+    .s_axi_awaddr  (cpu_ddr_awaddr[DDR_ADDR_W-1:0]),
+    .s_axi_awlen   (cpu_ddr_awlen),
+    .s_axi_awsize  (cpu_ddr_awsize),
+    .s_axi_awburst (cpu_ddr_awburst),
+    .s_axi_awlock  (cpu_ddr_awlock),
+    .s_axi_awcache (cpu_ddr_awcache),
+    .s_axi_awprot  (cpu_ddr_awprot),
+    .s_axi_awqos   (cpu_ddr_awqos),
+    .s_axi_awvalid (cpu_ddr_awvalid),
+    .s_axi_awready (cpu_ddr_awready),
+    .s_axi_wdata   (cpu_ddr_wdata),
+    .s_axi_wstrb   (cpu_ddr_wstrb),
+    .s_axi_wlast   (cpu_ddr_wlast),
+    .s_axi_wvalid  (cpu_ddr_wvalid),
+    .s_axi_wready  (cpu_ddr_wready),
+    .s_axi_bid     (),
+    .s_axi_bresp   (cpu_ddr_bresp),
+    .s_axi_bvalid  (cpu_ddr_bvalid),
+    .s_axi_bready  (cpu_ddr_bready),
+    .s_axi_arid    (1'b0),
+    .s_axi_araddr  (cpu_ddr_araddr[DDR_ADDR_W-1:0]),
+    .s_axi_arlen   (cpu_ddr_arlen),
+    .s_axi_arsize  (cpu_ddr_arsize),
+    .s_axi_arburst (cpu_ddr_arburst),
+    .s_axi_arlock  (cpu_ddr_arlock),
+    .s_axi_arcache (cpu_ddr_arcache),
+    .s_axi_arprot  (cpu_ddr_arprot),
+    .s_axi_arqos   (cpu_ddr_arqos),
+    .s_axi_arvalid (cpu_ddr_arvalid),
+    .s_axi_arready (cpu_ddr_arready),
+    .s_axi_rid     (),
+    .s_axi_rdata   (cpu_ddr_rdata),
+    .s_axi_rresp   (cpu_ddr_rresp),
+    .s_axi_rlast   (cpu_ddr_rlast),
+    .s_axi_rvalid  (cpu_ddr_rvalid),
+    .s_axi_rready  (cpu_ddr_rready),
+    .m_clk         (ui_clk),
+    .m_resetn      (ddr_resetn),
+    .m_axi_awid    (br_awid),
+    .m_axi_awaddr  (br_awaddr),
+    .m_axi_awlen   (br_awlen),
+    .m_axi_awsize  (br_awsize),
+    .m_axi_awburst (br_awburst),
+    .m_axi_awlock  (),
+    .m_axi_awcache (),
+    .m_axi_awprot  (),
+    .m_axi_awqos   (),
+    .m_axi_awvalid (br_awvalid),
+    .m_axi_awready (br_awready),
+    .m_axi_wdata   (br_wdata),
+    .m_axi_wstrb   (br_wstrb),
+    .m_axi_wlast   (br_wlast),
+    .m_axi_wvalid  (br_wvalid),
+    .m_axi_wready  (br_wready),
+    .m_axi_bid     (br_bid),
+    .m_axi_bresp   (br_bresp),
+    .m_axi_bvalid  (br_bvalid),
+    .m_axi_bready  (br_bready),
+    .m_axi_arid    (br_arid),
+    .m_axi_araddr  (br_araddr),
+    .m_axi_arlen   (br_arlen),
+    .m_axi_arsize  (br_arsize),
+    .m_axi_arburst (br_arburst),
+    .m_axi_arlock  (),
+    .m_axi_arcache (),
+    .m_axi_arprot  (),
+    .m_axi_arqos   (),
+    .m_axi_arvalid (br_arvalid),
+    .m_axi_arready (br_arready),
+    .m_axi_rid     (br_rid),
+    .m_axi_rdata   (br_rdata),
+    .m_axi_rresp   (br_rresp),
+    .m_axi_rlast   (br_rlast),
+    .m_axi_rvalid  (br_rvalid),
+    .m_axi_rready  (br_rready)
+  );
+
+  // Arbiter: one master (both cores' caches, merged by the BD's sc_ddr),
+  // ui_clk datapath, register port on cpu_clk in window 1 slot ARBITER.
+  rtlnet_axi_arbiter #(
+    .NUM_MASTERS     (1),
+    .ADDR_W          (DDR_ADDR_W),
+    .DATA_W          (DDR_DATA_W),
+    .ID_W            (ARB_ID_W),
+    .HIGH_PRIO_MASK  (1'b1),
+    .NARROW_MASK     (1'b1),   // the write-through data caches issue 32-bit stores
+    .MAX_OUTSTANDING (8)
+  ) u_arb (
+    .clk           (ui_clk),
+    .resetn        (ddr_resetn),
+    .s_axi_aclk    (cpu_clk),
+    .s_axi_aresetn (cpu_resetn_sync),
+    .s_awid        (br_awid),
+    .s_awaddr      (br_awaddr),
+    .s_awlen       (br_awlen),
+    .s_awsize      (br_awsize),
+    .s_awburst     (br_awburst),
+    .s_awvalid     (br_awvalid),
+    .s_awready     (br_awready),
+    .s_wdata       (br_wdata),
+    .s_wstrb       (br_wstrb),
+    .s_wlast       (br_wlast),
+    .s_wvalid      (br_wvalid),
+    .s_wready      (br_wready),
+    .s_bid         (br_bid),
+    .s_bresp       (br_bresp),
+    .s_bvalid      (br_bvalid),
+    .s_bready      (br_bready),
+    .s_arid        (br_arid),
+    .s_araddr      (br_araddr),
+    .s_arlen       (br_arlen),
+    .s_arsize      (br_arsize),
+    .s_arburst     (br_arburst),
+    .s_arvalid     (br_arvalid),
+    .s_arready     (br_arready),
+    .s_rid         (br_rid),
+    .s_rdata       (br_rdata),
+    .s_rresp       (br_rresp),
+    .s_rlast       (br_rlast),
+    .s_rvalid      (br_rvalid),
+    .s_rready      (br_rready),
+    .m_axi_awid    (mem_awid),
+    .m_axi_awaddr  (mem_awaddr),
+    .m_axi_awlen   (mem_awlen),
+    .m_axi_awsize  (mem_awsize),
+    .m_axi_awburst (mem_awburst),
+    .m_axi_awlock  (mem_awlock),
+    .m_axi_awcache (mem_awcache),
+    .m_axi_awprot  (mem_awprot),
+    .m_axi_awqos   (mem_awqos),
+    .m_axi_awvalid (mem_awvalid),
+    .m_axi_awready (mem_awready),
+    .m_axi_wdata   (mem_wdata),
+    .m_axi_wstrb   (mem_wstrb),
+    .m_axi_wlast   (mem_wlast),
+    .m_axi_wvalid  (mem_wvalid),
+    .m_axi_wready  (mem_wready),
+    .m_axi_bid     (mem_bid),
+    .m_axi_bresp   (mem_bresp),
+    .m_axi_bvalid  (mem_bvalid),
+    .m_axi_bready  (mem_bready),
+    .m_axi_arid    (mem_arid),
+    .m_axi_araddr  (mem_araddr),
+    .m_axi_arlen   (mem_arlen),
+    .m_axi_arsize  (mem_arsize),
+    .m_axi_arburst (mem_arburst),
+    .m_axi_arlock  (mem_arlock),
+    .m_axi_arcache (mem_arcache),
+    .m_axi_arprot  (mem_arprot),
+    .m_axi_arqos   (mem_arqos),
+    .m_axi_arvalid (mem_arvalid),
+    .m_axi_arready (mem_arready),
+    .m_axi_rid     (mem_rid),
+    .m_axi_rdata   (mem_rdata),
+    .m_axi_rresp   (mem_rresp),
+    .m_axi_rlast   (mem_rlast),
+    .m_axi_rvalid  (mem_rvalid),
+    .m_axi_rready  (mem_rready),
+    .s_axi_awaddr  (d1_awaddr[S1_ARB*AW +: ARB_ADDR_W]),
+    .s_axi_awvalid (d1_awvalid[S1_ARB]),
+    .s_axi_awready (d1_awready[S1_ARB]),
+    .s_axi_wdata   (d1_wdata[S1_ARB*32 +: 32]),
+    .s_axi_wstrb   (d1_wstrb[S1_ARB*4 +: 4]),
+    .s_axi_wvalid  (d1_wvalid[S1_ARB]),
+    .s_axi_wready  (d1_wready[S1_ARB]),
+    .s_axi_bresp   (d1_bresp[S1_ARB*2 +: 2]),
+    .s_axi_bvalid  (d1_bvalid[S1_ARB]),
+    .s_axi_bready  (d1_bready[S1_ARB]),
+    .s_axi_araddr  (d1_araddr[S1_ARB*AW +: ARB_ADDR_W]),
+    .s_axi_arvalid (d1_arvalid[S1_ARB]),
+    .s_axi_arready (d1_arready[S1_ARB]),
+    .s_axi_rdata   (d1_rdata[S1_ARB*32 +: 32]),
+    .s_axi_rresp   (d1_rresp[S1_ARB*2 +: 2]),
+    .s_axi_rvalid  (d1_rvalid[S1_ARB]),
+    .s_axi_rready  (d1_rready[S1_ARB]),
+    .err_irq       ()
+  );
+
+  // DDR3 controller: sys_clk ddr_sys_clk, ref_clk clk200; sys_rstn is the
+  // board reset assertion (a button press recalibrates the memory).
+  rtlnet_ddr #(
+    .ADDR_W (DDR_ADDR_W),
+    .DATA_W (DDR_DATA_W),
+    .ID_W   (DDR_ID_W)
+  ) u_ddr (
+    .sys_clk             (ddr_sys_clk),
+    .ref_clk             (clk200),
+    .sys_rstn            (rst_arstn),
+    .ui_clk              (ui_clk),
+    .ui_resetn           (ui_resetn_mig),
+    .s_axi_aresetn       (ddr_resetn),
+    .init_calib_complete (ddr_calib),
+    .s_axi_awid          (mem_awid),
+    .s_axi_awaddr        (mem_awaddr),
+    .s_axi_awlen         (mem_awlen),
+    .s_axi_awsize        (mem_awsize),
+    .s_axi_awburst       (mem_awburst),
+    .s_axi_awlock        (mem_awlock),
+    .s_axi_awcache       (mem_awcache),
+    .s_axi_awprot        (mem_awprot),
+    .s_axi_awqos         (mem_awqos),
+    .s_axi_awvalid       (mem_awvalid),
+    .s_axi_awready       (mem_awready),
+    .s_axi_wdata         (mem_wdata),
+    .s_axi_wstrb         (mem_wstrb),
+    .s_axi_wlast         (mem_wlast),
+    .s_axi_wvalid        (mem_wvalid),
+    .s_axi_wready        (mem_wready),
+    .s_axi_bid           (mem_bid),
+    .s_axi_bresp         (mem_bresp),
+    .s_axi_bvalid        (mem_bvalid),
+    .s_axi_bready        (mem_bready),
+    .s_axi_arid          (mem_arid),
+    .s_axi_araddr        (mem_araddr),
+    .s_axi_arlen         (mem_arlen),
+    .s_axi_arsize        (mem_arsize),
+    .s_axi_arburst       (mem_arburst),
+    .s_axi_arlock        (mem_arlock),
+    .s_axi_arcache       (mem_arcache),
+    .s_axi_arprot        (mem_arprot),
+    .s_axi_arqos         (mem_arqos),
+    .s_axi_arvalid       (mem_arvalid),
+    .s_axi_arready       (mem_arready),
+    .s_axi_rid           (mem_rid),
+    .s_axi_rdata         (mem_rdata),
+    .s_axi_rresp         (mem_rresp),
+    .s_axi_rlast         (mem_rlast),
+    .s_axi_rvalid        (mem_rvalid),
+    .s_axi_rready        (mem_rready),
+    .ddr3_dq             (ddr3_dq),
+    .ddr3_dqs_n          (ddr3_dqs_n),
+    .ddr3_dqs_p          (ddr3_dqs_p),
+    .ddr3_addr           (ddr3_addr),
+    .ddr3_ba             (ddr3_ba),
+    .ddr3_ras_n          (ddr3_ras_n),
+    .ddr3_cas_n          (ddr3_cas_n),
+    .ddr3_we_n           (ddr3_we_n),
+    .ddr3_reset_n        (ddr3_reset_n),
+    .ddr3_ck_p           (ddr3_ck_p),
+    .ddr3_ck_n           (ddr3_ck_n),
+    .ddr3_cke            (ddr3_cke),
+    .ddr3_dm             (ddr3_dm),
+    .ddr3_odt            (ddr3_odt)
+  );
+
+  // ---------------------------------------------------------------------------
+  // HDMI TMDS output: per lane an OSERDESE2 master/slave pair, 10:1 DDR,
+  // CLKDIV pix_clk, CLK pix_clk_x5, bit 0 first (master D1 = bit 0 ... D8 =
+  // bit 7, slave D3/D4 = bits 8/9 through SHIFTIN), then OBUFDS (TMDS_33).
+  // RST is the primitives' asynchronous reset, driven from pix_resetn, which
+  // is synchronous to CLKDIV as UG471 requires (vendor primitive exception).
+  // ---------------------------------------------------------------------------
+  genvar gl;
+  generate
+    for (gl = 0; gl < TMDS_LANES; gl++) begin : g_tmds
+      logic shift1;
+      logic shift2;
+
+      OSERDESE2 #(
+        .DATA_RATE_OQ   ("DDR"),
+        .DATA_RATE_TQ   ("SDR"),
+        .DATA_WIDTH     (TMDS_W),
+        .SERDES_MODE    ("MASTER"),
+        .TRISTATE_WIDTH (1),
+        .TBYTE_CTL      ("FALSE"),
+        .TBYTE_SRC      ("FALSE")
+      ) u_ser_m (
+        .OQ        (tmds_ser[gl]),
+        .OFB       (),
+        .TQ        (),
+        .TFB       (),
+        .SHIFTOUT1 (),
+        .SHIFTOUT2 (),
+        .TBYTEOUT  (),
+        .CLK       (pix_clk_x5),
+        .CLKDIV    (pix_clk),
+        .D1        (tmds_word[gl][0]),
+        .D2        (tmds_word[gl][1]),
+        .D3        (tmds_word[gl][2]),
+        .D4        (tmds_word[gl][3]),
+        .D5        (tmds_word[gl][4]),
+        .D6        (tmds_word[gl][5]),
+        .D7        (tmds_word[gl][6]),
+        .D8        (tmds_word[gl][7]),
+        .OCE       (1'b1),
+        .RST       (~pix_resetn),
+        .SHIFTIN1  (shift1),
+        .SHIFTIN2  (shift2),
+        .T1        (1'b0),
+        .T2        (1'b0),
+        .T3        (1'b0),
+        .T4        (1'b0),
+        .TBYTEIN   (1'b0),
+        .TCE       (1'b0)
+      );
+
+      OSERDESE2 #(
+        .DATA_RATE_OQ   ("DDR"),
+        .DATA_RATE_TQ   ("SDR"),
+        .DATA_WIDTH     (TMDS_W),
+        .SERDES_MODE    ("SLAVE"),
+        .TRISTATE_WIDTH (1),
+        .TBYTE_CTL      ("FALSE"),
+        .TBYTE_SRC      ("FALSE")
+      ) u_ser_s (
+        .OQ        (),
+        .OFB       (),
+        .TQ        (),
+        .TFB       (),
+        .SHIFTOUT1 (shift1),
+        .SHIFTOUT2 (shift2),
+        .TBYTEOUT  (),
+        .CLK       (pix_clk_x5),
+        .CLKDIV    (pix_clk),
+        .D1        (1'b0),
+        .D2        (1'b0),
+        .D3        (tmds_word[gl][8]),
+        .D4        (tmds_word[gl][9]),
+        .D5        (1'b0),
+        .D6        (1'b0),
+        .D7        (1'b0),
+        .D8        (1'b0),
+        .OCE       (1'b1),
+        .RST       (~pix_resetn),
+        .SHIFTIN1  (1'b0),
+        .SHIFTIN2  (1'b0),
+        .T1        (1'b0),
+        .T2        (1'b0),
+        .T3        (1'b0),
+        .T4        (1'b0),
+        .TBYTEIN   (1'b0),
+        .TCE       (1'b0)
+      );
+    end
+  endgenerate
+
+  OBUFDS #(.IOSTANDARD("TMDS_33")) u_obuf_tmds0 (.I(tmds_ser[0]), .O(hdmi_tx_p[0]),  .OB(hdmi_tx_n[0]));
+  OBUFDS #(.IOSTANDARD("TMDS_33")) u_obuf_tmds1 (.I(tmds_ser[1]), .O(hdmi_tx_p[1]),  .OB(hdmi_tx_n[1]));
+  OBUFDS #(.IOSTANDARD("TMDS_33")) u_obuf_tmds2 (.I(tmds_ser[2]), .O(hdmi_tx_p[2]),  .OB(hdmi_tx_n[2]));
+  OBUFDS #(.IOSTANDARD("TMDS_33")) u_obuf_tmdsc (.I(tmds_ser[3]), .O(hdmi_tx_clk_p), .OB(hdmi_tx_clk_n));
+
+  // ---------------------------------------------------------------------------
+  // Audio pins: MCLK forwarded by ODDR (D1 1, D2 0 = aud_clk in phase); BCLK,
+  // LRCLK and DAC data re-registered into IOB flip-flops on aud_clk. All three
+  // take the same one-clock delay, so their relative timing is that of
+  // sid_audio_out (data changes on the BCLK falling edge).
+  // ---------------------------------------------------------------------------
+  ODDR #(
+    .DDR_CLK_EDGE ("SAME_EDGE"),
+    .INIT         (1'b0),
+    .SRTYPE       ("SYNC")
+  ) u_oddr_mclk (
+    .Q  (ac_mclk),
+    .C  (aud_clk),
+    .CE (1'b1),
+    .D1 (1'b1),
+    .D2 (1'b0),
+    .R  (1'b0),
+    .S  (1'b0)
+  );
+
+  (* IOB = "TRUE" *) logic ac_bclk_q;
+  (* IOB = "TRUE" *) logic ac_lrclk_q;
+  (* IOB = "TRUE" *) logic ac_dac_sdata_q;
+
+  always_ff @(posedge aud_clk) begin
+    if (!aud_resetn) begin
+      ac_bclk_q      <= 1'b0;
+      ac_lrclk_q     <= 1'b0;
+      ac_dac_sdata_q <= 1'b0;
+    end else begin
+      ac_bclk_q      <= aud_bclk_q;
+      ac_lrclk_q     <= aud_lrclk_q;
+      ac_dac_sdata_q <= aud_sdata_q;
+    end
+  end
+
+  assign ac_bclk      = ac_bclk_q;
+  assign ac_lrclk     = ac_lrclk_q;
+  assign ac_dac_sdata = ac_dac_sdata_q;
+
+  // ---------------------------------------------------------------------------
+  // Ethernet PHY held in reset; LEDs.
+  // ---------------------------------------------------------------------------
+  assign eth_rst_b = 1'b0;
+  assign led = {led1[3:0], led0[1:0], clk_status[SYS_CLK_DDR_CALIB_BIT], mmcm_locked};
+
+endmodule

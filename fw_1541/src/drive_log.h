@@ -1,0 +1,33 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 IronKernel
+ *
+ * File: drive_log.h
+ * Role: the console of core 1. Core 1 has no UART and no JTAG UART; its text
+ *   goes into the log ring in the shared BRAM (common/drive_proto.h
+ *   DRIVE_LOG_OFS, drive_log_t) and core 0 prints it.
+ *
+ * Owner: drive_log.c is the only writer of the ring's text, head and dropped
+ *   fields on core 1 (core 0 owns tail). drive_server.c owns the rest of the
+ *   shared BRAM.
+ * Ring full: new text is dropped and counted in drive_log_t.dropped; logging
+ *   never blocks and never waits for core 0.
+ * Context: callable from any task and before the scheduler starts; not from
+ *   an ISR (it takes a FreeRTOS critical section and formats with vsnprintf).
+ * Never log credentials (c64demo.md Phase 4 item 6).
+ *
+ * Headers hold contracts; per-function commentary lives in drive_log.c.
+ */
+#ifndef DRIVE_LOG_H
+#define DRIVE_LOG_H
+
+#include <stdint.h> /* uint32_t */
+
+/* Longest line drive_log_printf formats (NUL included); longer text is cut. */
+#define DRIVE_LOG_LINE_BYTES     (160u)
+
+void drive_log_init(void);
+void drive_log_write(const char *s, uint32_t n);
+void drive_log_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+
+#endif /* DRIVE_LOG_H */
