@@ -20,6 +20,9 @@
  *     INTC) clears it, masks it (the condition stays true until the main loop refills) and
  *     sets the refill flag; audio_out_push_block() unmasks it again.
  *   - Without the interrupt, audio_out_refill_due() also reports due when LEVEL <= THRESH.
+ *   - audio_out_set_source(1) selects the fabric stream of sid_player as the FIFO source; the
+ *     level then settles near empty (48 kHz in, 48 kHz out), so the low-level interrupt stays
+ *     true: the ISR masks it once and nothing unmasks it.
  * Headers hold contracts and constants; per-function commentary lives in the .c files.
  */
 #ifndef AUDIO_OUT_H
@@ -34,6 +37,7 @@
 
 void     audio_out_init(void);
 void     audio_out_enable(int on);
+void     audio_out_set_source(int fabric);  /* 1: sid_player stream (CTRL.SRC), 0: SAMPLE reg */
 void     audio_out_flush(void);
 void     audio_out_set_threshold(uint32_t frames);
 void     audio_out_isr(void *ref);

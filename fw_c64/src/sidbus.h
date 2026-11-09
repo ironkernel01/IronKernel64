@@ -7,10 +7,9 @@
  *   window ($D400-$D7FF, 32-byte mirror, register = addr & $1F) that c64mem.c
  *   forwards to the SID chip, which is an RTL SID core in the fabric.
  *
- * Interface (one implementation is linked):
- *   - sidbus_log.c: recording stub; stores the writes of the current frame in a
- *     static array (accessors in the "recording stub" section below).
- *   - the fabric driver (owned by the lead): streams the writes to the RTL SID.
+ * Interface (one implementation is linked): sidbus_fabric.c streams the writes to the
+ *   sid_player block (timestamped FIFO in front of the RTL SID). sidbus_log.c is the
+ *   superseded recording stub and is not part of the build.
  *
  * Call order, all from the core 0 main loop:
  *   sidbus_reset(model)       on every PSID song init, before the init call.
@@ -49,39 +48,12 @@ typedef enum
     SIDBUS_MODEL_8580 = 1
 } sidbus_model_t;
 
-typedef struct
-{
-    uint32_t cycle;   /* 6502 cycle offset inside the current call */
-    uint8_t  reg;     /* 0..31 */
-    uint8_t  val;
-} sidbus_write_t;
-
 void sidbus_reset(sidbus_model_t model);
 void sidbus_frame_begin(void);
 void sidbus_write(uint32_t cycle, uint8_t reg, uint8_t val);
 uint8_t sidbus_read(uint8_t reg);
 
-/* ---- recording stub only (sidbus_log.c) ---- */
-
-/*
- * Capacity: the most SID writes one play call can make.
- *   - A play call is capped at 20,000 cycles (C64MEM_PLAY_MAX_CYCLES, c64mem.h); the
- *     run loop checks the cap between instructions, so a call ends within 20,000 + 8
- *     cycles (the last instruction takes at most 8).
- *   - The densest SID write pattern is a read-modify-write on $D4xx (INC/ASL... abs:
- *     6 cycles, two writes), one write per 3 cycles; STA abs is one per 4.
- *   - (20000 + 8) / 3 + 2 = 6671 entries x 8 bytes = 53,368 bytes of .bss.
- *   Keep SIDBUS_LOG_PLAY_MAX_CYCLES equal to C64MEM_PLAY_MAX_CYCLES (c64mem.c checks
- *   it at compile time). Drift failure mode: a smaller log drops writes; every
- *   dropped write is counted by sidbus_log_overflows, never silent. A long init
- *   call can exceed the capacity; its overflow is counted the same way.
- */
+/* Play-call cycle cap that c64mem.c cross-checks against C64MEM_PLAY_MAX_CYCLES. */
 #define SIDBUS_LOG_PLAY_MAX_CYCLES  (20000u)
-#define SIDBUS_LOG_OVERRUN_CYCLES   (8u)
-#define SIDBUS_LOG_CAPACITY  ((SIDBUS_LOG_PLAY_MAX_CYCLES + SIDBUS_LOG_OVERRUN_CYCLES) / 3u + 2u)
-
-const sidbus_write_t *sidbus_log_frame(uint32_t *n_writes);
-uint32_t sidbus_log_overflows(void);
-sidbus_model_t sidbus_log_model(void);
 
 #endif /* SIDBUS_H */

@@ -1,0 +1,236 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 IronKernel
+ *
+ * File: player.c
+ * Role: the basic_player_ops_t implementation (contract in player.h).
+ *
+ * Ownership: calls psid.h, sidbus_fabric.h and audio_out.h; touches no register itself.
+ * Concurrency: core 0 main loop only.
+ */
+#include "player.h"
+
+#include "audio_out.h"
+#include "c64_regs.h"
+#include "psid.h"
+#include "sidbus.h"
+#include "sidbus_fabric.h"
+
+#include <string.h>   /* memcpy */
+
+#define PLAYER_MS_PER_S   (1000u)
+
+static psid_info_t g_info;
+static uint32_t g_song;          /* 1-based current song */
+static int      g_playing;
+static uint32_t g_t0;            /* CYCLE at the end of init */
+static uint32_t g_base;          /* base time of the next frame */
+static uint32_t g_resyncs;
+static uint32_t g_errors;
+
+/*
+ * map_load -- psid_load status to the reason basic.c prints.
+ * Returns: the basic_player_reason_t.
+ */
+static basic_player_reason_t map_load(psid_status_t st)
+{
+    switch (st) {
+    case PSID_OK:
+        return BASIC_PLAYER_OK;
+    case PSID_ERR_NULL:
+    case PSID_ERR_SHORT:
+    case PSID_ERR_MAGIC:
+    case PSID_ERR_VERSION:
+    case PSID_ERR_DATA_OFFSET:
+    case PSID_ERR_NO_DATA:
+    case PSID_ERR_SONGS:
+        return BASIC_PLAYER_BAD_HEADER;
+    case PSID_ERR_RSID:
+        return BASIC_PLAYER_RSID;
+    case PSID_ERR_PLAY_ZERO:
+        return BASIC_PLAYER_NO_PLAY;
+    case PSID_ERR_CIA_SPEED:
+        return BASIC_PLAYER_CIA_SPEED;
+    default:
+        return BASIC_PLAYER_ERROR;
+    }
+}
+
+/*
+ * begin_song -- init one song and schedule its frames.
+ * Steps:
+ *   1. psid_init (resets the SID and its time, runs the init call).
+ *   2. t0 = CYCLE; the first frame is due one frame after it.
+ * Returns: the psid_init status.
+ */
+static psid_status_t begin_song(uint32_t song)
+{
+    psid_status_t st;
+
+    g_playing = 0;
+    st = psid_init((uint16_t)song);
+    if (st != PSID_OK) {
+        return st;
+    }
+    g_song = song;
+    g_t0 = sidbus_fabric_cycle();
+    g_base = g_t0 + PLAYER_FRAME_CYCLES;
+    g_playing = 1;
+    return PSID_OK;
+}
+
+/*
+ * player_start -- load a PSID image and start its start song.
+ * Steps:
+ *   1. Fabric audio source, FIFO flushed, output enabled.
+ *   2. psid_load, psid_init of the start song.
+ * Returns: BASIC_PLAYER_OK, or why the file was refused (output stopped again).
+ */
+static basic_player_reason_t player_start(const uint8_t *file, uint32_t len)
+{
+    psid_status_t st;
+
+    audio_out_flush();
+    audio_out_set_source(1);
+    audio_out_enable(1);
+    st = psid_load(file, len, &g_info);
+    if (st == PSID_OK) {
+        st = begin_song(g_info.start_song);
+    }
+    if (st != PSID_OK) {
+        g_playing = 0;
+        audio_out_enable(0);
+        audio_out_set_source(0);
+        return map_load(st);
+    }
+    return BASIC_PLAYER_OK;
+}
+
+/*
+ * player_info -- tune texts for the now-playing screen.
+ * Returns: nothing.
+ */
+static void player_info(basic_tune_info_t *info)
+{
+    memcpy(info->name, g_info.name, BASIC_TUNE_TEXT_BYTES - 1u);
+    memcpy(info->author, g_info.author, BASIC_TUNE_TEXT_BYTES - 1u);
+    memcpy(info->released, g_info.released, BASIC_TUNE_TEXT_BYTES - 1u);
+    info->name[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+    info->author[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+    info->released[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+    info->songs = g_info.songs;
+    info->start_song = g_song;
+}
+
+/*
+ * player_select_song -- restart on another song of the loaded tune.
+ * Returns: 0 on success, -1 when the song cannot be played (playback is then stopped).
+ */
+static int player_select_song(uint32_t song)
+{
+    return (begin_song(song) == PSID_OK) ? 0 : -1;
+}
+
+/*
+ * player_service -- run the play calls that are due.
+ * Steps:
+ *   1. Behind by a whole frame or more: restart the schedule at CYCLE (count it).
+ *   2. While the next frame's base time is at most PLAYER_LEAD_FRAMES ahead of CYCLE (signed
+ *      difference), at most PLAYER_MAX_FRAMES_PER_SERVICE times: set the base, psid_play_frame,
+ *      advance the base by one frame. A play failure stops the song (SID silenced).
+ * Returns: nothing.
+ */
+static void player_service(void)
+{
+    if (!g_playing) {
+        return;
+    }
+    if ((int32_t)(sidbus_fabric_cycle() - g_base) >= (int32_t)PLAYER_FRAME_CYCLES) {
+        g_base = sidbus_fabric_cycle();
+        g_resyncs++;
+    }
+    for (uint32_t i = 0u; i < PLAYER_MAX_FRAMES_PER_SERVICE; i++) {
+        const int32_t ahead = (int32_t)(g_base - sidbus_fabric_cycle());
+
+        if (ahead > (int32_t)(PLAYER_LEAD_FRAMES * PLAYER_FRAME_CYCLES)) {
+            break;
+        }
+        sidbus_fabric_set_base(g_base);
+        if (psid_play_frame() != PSID_OK) {
+            g_errors++;
+            g_playing = 0;
+            sidbus_reset(SIDBUS_MODEL_6581);
+            return;
+        }
+        g_base += PLAYER_FRAME_CYCLES;
+    }
+}
+
+/*
+ * player_elapsed_ms -- time since the song started playing.
+ * Returns: milliseconds from CYCLE (0 before the first cycle after init).
+ */
+static uint32_t player_elapsed_ms(void)
+{
+    const int32_t d = (int32_t)(sidbus_fabric_cycle() - g_t0);
+    uint32_t c;
+
+    if (!g_playing || d <= 0) {
+        return 0u;
+    }
+    c = (uint32_t)d;
+    return (c / C64_SID_PHI2_HZ) * PLAYER_MS_PER_S +
+           ((c % C64_SID_PHI2_HZ) * PLAYER_MS_PER_S) / C64_SID_PHI2_HZ;
+}
+
+/*
+ * player_voice_levels -- envelope per voice.
+ * Returns: nothing; voice 3 from ENV3, voices 1 and 2 are 0 (not readable in hardware yet).
+ */
+static void player_voice_levels(uint8_t level[BASIC_VOICES])
+{
+    level[0] = 0u;
+    level[1] = 0u;
+    level[2] = g_playing ? sidbus_fabric_env3() : 0u;
+}
+
+/*
+ * player_stop -- stop the song: SID reset, audio output off, source back to the SAMPLE register.
+ * Returns: nothing.
+ */
+static void player_stop(void)
+{
+    g_playing = 0;
+    sidbus_reset(SIDBUS_MODEL_6581);
+    audio_out_enable(0);
+    audio_out_flush();
+    audio_out_set_source(0);
+}
+
+const basic_player_ops_t g_player_ops = {
+    player_start,
+    player_info,
+    player_select_song,
+    player_service,
+    player_elapsed_ms,
+    player_voice_levels,
+    player_stop
+};
+
+/*
+ * player_resyncs -- schedule restarts after a stalled main loop.
+ * Returns: the count since boot.
+ */
+uint32_t player_resyncs(void)
+{
+    return g_resyncs;
+}
+
+/*
+ * player_errors -- songs stopped by a failing play call.
+ * Returns: the count since boot.
+ */
+uint32_t player_errors(void)
+{
+    return g_errors;
+}

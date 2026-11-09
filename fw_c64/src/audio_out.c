@@ -99,6 +99,24 @@ void audio_out_enable(int on)
 }
 
 /*
+ * audio_out_set_source -- select the sample source of the FIFO.
+ * Steps:
+ *   1. CTRL.SRC = 1: the FIFO takes the 48 kHz stream of sid_player (the SAMPLE register is
+ *      then ignored); 0: the SAMPLE register (audio_out_push_block).
+ * Returns: nothing.
+ */
+void audio_out_set_source(int fabric)
+{
+    const uint32_t src = 1u << C64_AUD_CTRL_SRC_BIT;
+
+    if (fabric) {
+        ctrl_update(src, 0u);
+    } else {
+        ctrl_update(0u, src);
+    }
+}
+
+/*
  * audio_out_flush -- empty the FIFO (FLUSH is self-clearing).
  * Returns: nothing.
  */
