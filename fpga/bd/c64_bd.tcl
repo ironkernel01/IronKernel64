@@ -56,7 +56,7 @@
 #       0x4080_0000  64 KiB IIC             0x4120_0000  64 KiB INTC
 #       0x4120_0000  64 KiB INTC            0x41C0_0000  64 KiB Timer
 #       0x41C0_0000  64 KiB Timer           0x44A0_0000   1 MiB M_AXI_DRV
-#       0x4400_0000 256 KiB M_AXI_C64       0x4500_0000  64 KiB Mailbox S1
+#       0x4400_0000 512 KiB M_AXI_C64       0x4500_0000  64 KiB Mailbox S1
 #       0x4500_0000  64 KiB Mailbox S0      0x8000_0000 512 MiB DDR3 (cached)
 #       0x8000_0000 512 MiB DDR3 (cached)   0xC000_0000 128 KiB network BRAM
 #       0xC000_0000 256 KiB framebuffer     0xC100_0000 128 KiB shared BRAM
@@ -87,7 +87,7 @@ namespace eval c64_bd {
   variable MBOX_BASE      0x45000000
   # Exported fabric windows (c64_pkg.sv WIN_SIZE / WIN1_SIZE).
   variable WIN0_BASE      0x44000000
-  variable WIN0_RANGE     256K
+  variable WIN0_RANGE     512K
   variable WIN1_BASE      0x44A00000
   variable WIN1_RANGE     1M
   # Framebuffer: 2 pages x 92,160 bytes = 184,320 bytes in a 256 KiB window.

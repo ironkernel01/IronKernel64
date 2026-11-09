@@ -37,9 +37,9 @@ package c64_pkg;
   localparam logic [31:0] WIN_AUD_OFS  = 32'h0001_0000; // sid_audio_out
   localparam logic [31:0] WIN_VID_OFS  = 32'h0002_0000; // c64_video registers
   localparam logic [31:0] WIN_PS2_OFS  = 32'h0003_0000; // ps2_rx
-  localparam logic [31:0] WIN_SID_OFS  = 32'h0004_0000; // sid_player (beyond WIN_SIZE: the window must grow when it is integrated)
+  localparam logic [31:0] WIN_SID_OFS  = 32'h0004_0000; // sid_player (64 KiB slot, sid_player.sv)
   localparam logic [31:0] WIN_BLOCK_SIZE = 32'h0001_0000;
-  localparam logic [31:0] WIN_SIZE     = 32'h0004_0000; // whole window, 256 KiB
+  localparam logic [31:0] WIN_SIZE     = 32'h0008_0000; // whole window, 512 KiB
 
   // Core 1 fabric window (M_AXI_DRV, 1 MiB): RTLNet's register-window layout, so
   // the RTLNet network drivers reused by fw_1541 see their blocks at RTLNet's

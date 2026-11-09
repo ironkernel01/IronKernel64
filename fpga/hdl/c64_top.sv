@@ -5,7 +5,7 @@
 // Purpose: the IronKernel 64 board top for the Digilent Nexys Video
 //   (XC7A200T-1SBG484): pins, clock generation and global buffers, the reset
 //   tree, the two-core MicroBlaze V block design c64_cpu, the fabric register
-//   windows of both cores, the video, audio, PS/2 and system-register blocks,
+//   windows of both cores, the video, audio, SID, PS/2 and system-register blocks,
 //   the DDR3 path and every I/O primitive (OSERDESE2, OBUFDS, ODDR, IOBUF).
 // Overview:
 //   * Derived from RTLNet boards/nexys_video/hdl/rtlnet_nexys_video_top.sv
@@ -28,9 +28,10 @@
 //     rtlnet_reset_sync per domain. The pixel and audio domains also wait for
 //     their own MMCM; the ui_clk reset is RTLNet's (chain AND MIG ui reset).
 //   * Register windows:
-//       core 0 M_AXI_C64 (0x4400_0000, 256 KiB) -> u_dec0: SYS (c64_sysregs
-//         core 0), AUD (sid_audio_out), VID (c64_video), PS2 (ps2_rx), 64 KiB
-//         each at c64_pkg WIN_*_OFS.
+//       core 0 M_AXI_C64 (0x4400_0000, 512 KiB) -> u_dec0: SYS (c64_sysregs
+//         core 0), AUD (sid_audio_out), VID (c64_video), PS2 (ps2_rx), SID
+//         (sid_player), 64 KiB each at c64_pkg WIN_*_OFS; the sample stream
+//         u_sid.strm_* feeds u_audio (CTRL.SRC = 1).
 //       core 1 M_AXI_DRV (0x44A0_0000, 1 MiB) -> u_dec1, RTLNet layout:
 //         SYS (c64_sysregs core 1), ARB (rtlnet_axi_arbiter registers), and
 //         stubs (OKAY, read 0) for MAC, MDIO and PROTOCOL until Phase 4.
@@ -44,6 +45,8 @@
 // Language: SystemVerilog-2012 (synthesizable).
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version.
+//   * 11-09-2026: window 0 grows to 512 KiB; sid_player (u_sid, slot SID) and
+//     its stream into sid_audio_out; CPU_CLK_HZ from c64_pkg.
 // Clocks: sysclk (100 MHz pin) -> u_mmcm_sys; cpu_clk, clk200, ddr_sys_clk,
 //   pix_clk, pix_clk_x5, aud_clk, ui_clk as above.
 // Pins: names, balls, banks and I/O standards from the Digilent
@@ -136,18 +139,19 @@ module c64_top
   // ---------------------------------------------------------------------------
   // Constants
   // ---------------------------------------------------------------------------
-  localparam int          CPU_CLK_HZ  = 100_000_000;
   localparam int          AW          = 32;
   // Window bases: mirror fpga/bd/c64_bd.tcl (namespace c64_bd WIN0_BASE, WIN1_BASE).
   localparam logic [31:0] WIN0_BASE   = 32'h4400_0000;
   localparam logic [31:0] WIN1_BASE   = 32'h44A0_0000;
   // Window 0 slots.
-  localparam int          NUM_SLV0    = 4;
+  localparam int          NUM_SLV0    = 5;
   localparam int          S0_SYS      = 0;
   localparam int          S0_AUD      = 1;
   localparam int          S0_VID      = 2;
   localparam int          S0_PS2      = 3;
+  localparam int          S0_SID      = 4;
   localparam logic [NUM_SLV0*AW-1:0] SLAVE0_BASE = {
+    WIN0_BASE + WIN_SID_OFS,         // 4 SID
     WIN0_BASE + WIN_PS2_OFS,         // 3 PS2
     WIN0_BASE + WIN_VID_OFS,         // 2 VID
     WIN0_BASE + WIN_AUD_OFS,         // 1 AUD
@@ -420,6 +424,8 @@ module c64_top
   logic                    aud_irq;
   logic                    vid_irq;
   logic                    ps2_irq;
+  logic                    sid_strm_valid;   // sid_player -> sid_audio_out, cpu_clk, 48 kHz
+  logic signed [15:0]      sid_strm_sample;
   logic [CLK_STATUS_W-1:0] clk_status_async;
   logic [CLK_STATUS_W-1:0] clk_status;        // cpu_clk, synchronized
   logic [7:0]              led0;              // core 0 SYS_LED
@@ -798,7 +804,7 @@ module c64_top
   IOBUF u_sda_iobuf (.I(iic_sda_o), .T(iic_sda_t), .O(iic_sda_i), .IO(sda));
 
   // ---------------------------------------------------------------------------
-  // Register window 0 (core 0): SYS, AUD, VID, PS2.
+  // Register window 0 (core 0): SYS, AUD, VID, PS2, SID.
   // ---------------------------------------------------------------------------
   rtlnet_axil_decoder #(
     .N          (NUM_SLV0),
@@ -894,12 +900,39 @@ module c64_top
     .s_axi_rresp   (d0_rresp[S0_AUD*2 +: 2]),
     .s_axi_rvalid  (d0_rvalid[S0_AUD]),
     .s_axi_rready  (d0_rready[S0_AUD]),
+    .strm_valid    (sid_strm_valid),
+    .strm_sample   (sid_strm_sample),
     .irq           (aud_irq),
     .aud_clk       (aud_clk),
     .aud_resetn    (aud_resetn),
     .aud_bclk_q    (aud_bclk_q),
     .aud_lrclk_q   (aud_lrclk_q),
     .aud_sdata_q   (aud_sdata_q)
+  );
+
+  // SID sound (window SID): reDIP-SID core, register replay, 48 kHz sample stream into u_audio.
+  sid_player u_sid (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .s_axi_awaddr (d0_awaddr[S0_SID*AW +: REG_ADDR_W]),
+    .s_axi_awvalid (d0_awvalid[S0_SID]),
+    .s_axi_awready (d0_awready[S0_SID]),
+    .s_axi_wdata  (d0_wdata[S0_SID*32 +: 32]),
+    .s_axi_wstrb  (d0_wstrb[S0_SID*4 +: 4]),
+    .s_axi_wvalid (d0_wvalid[S0_SID]),
+    .s_axi_wready (d0_wready[S0_SID]),
+    .s_axi_bresp  (d0_bresp[S0_SID*2 +: 2]),
+    .s_axi_bvalid (d0_bvalid[S0_SID]),
+    .s_axi_bready (d0_bready[S0_SID]),
+    .s_axi_araddr (d0_araddr[S0_SID*AW +: REG_ADDR_W]),
+    .s_axi_arvalid (d0_arvalid[S0_SID]),
+    .s_axi_arready (d0_arready[S0_SID]),
+    .s_axi_rdata  (d0_rdata[S0_SID*32 +: 32]),
+    .s_axi_rresp  (d0_rresp[S0_SID*2 +: 2]),
+    .s_axi_rvalid (d0_rvalid[S0_SID]),
+    .s_axi_rready (d0_rready[S0_SID]),
+    .strm_valid    (sid_strm_valid),
+    .strm_sample   (sid_strm_sample)
   );
 
   // Video (window VID) with framebuffer port A from the BD.

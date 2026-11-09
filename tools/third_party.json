@@ -141,6 +141,37 @@
         "LICENSE",
         "README.md"
       ],
+      "post": [
+        {
+          "run": [
+            "{python}",
+            "-I",
+            "{repo}/tools/redip_patch.py",
+            "{dest}/gateware",
+            "{dest}/ik64"
+          ],
+          "outputs": {
+            "ik64/sid_pkg.sv": "97ccec568a6e2ce22547438ec6d89efd6ed397fd011918501cd1a46c9701a7e6",
+            "ik64/sid_api.sv": "60eb641cb33cfdee25c037fa730622f64729135693ddf71667a67d267dcc1415",
+            "ik64/sid_control.sv": "39ea323415c6e85ff6c6c735a14fdb8520661f0024277f8890fbff2ddf828b3e",
+            "ik64/sid_waveform.sv": "cca46d79bb891f730cede57f7f272d20b754768ba3f79916a704d8752d379441",
+            "ik64/sid_waveform_PST.svh": "b99659a390844fb1ab0de909389bc178e5b8176ccdf5a820963a5257de5daf3b",
+            "ik64/sid_waveform__ST.svh": "b75d97cb4cab9326a88f069ec18cde0d19afd46714bf2fd8a4fdb00d3aeca908",
+            "ik64/sid_envelope.sv": "937a64839978d703b39e4c127e46a7ff5c74c169f2f2030ff93f03081967459d",
+            "ik64/sid_pot.sv": "c6201373672a5ea2e692c0904eb187c04039b8d36b1f5b935aad1f4d5bc221bf",
+            "ik64/sid_dac.sv": "79f8af8140002ab148e8bdfdc9a77f4447f71e397f93133e53270c6e67bc14ec",
+            "ik64/sid_voice.sv": "e9d4cbfa1b17b86841f55cca8cf0227b5af066c52effa135d3fa019a16d2b8cf",
+            "ik64/sid_filter.sv": "59bd44895930c981d1e28f01a7a8d9f65cbfb75c2172b9298a87c73f2d830020",
+            "ik64/dac_6581_cutoff.hex": "c2a7d814c1a2b0282fb9c071a5451ce59bb4c70fec3f04617bc6d38d7e2de273",
+            "ik64/dac_6581_envelope.hex": "e71e6982c14f84f8277dd7423c0eec60d45ce4cbe3807c4dcb145ca82f0e1f34",
+            "ik64/dac_6581_waveform.hex": "f9e3fddb2271d50528c22932448dd6fda17bcddb62e7e21ae3a86b8ab60a383c",
+            "ik64/sid_waveform_PS__6581.hex": "68715c889105881391fdd1cddb98f06d7b14594dc4f6f66040501a37a248a417",
+            "ik64/sid_waveform_PS__8580.hex": "54fbdab8f178df642c7a79efa185b5e2c0b7bb772100c8c8a2755ce948030203",
+            "ik64/sid_waveform_P_T_6581.hex": "d77beef3d61209ee3e60ae888c126c22cfa2ac71246c0b341d9a2f93827031cc",
+            "ik64/sid_waveform_P_T_8580.hex": "f7a5523aa40665d21bc08c358ab21485a1a0d9ee6ccfeda41086c9e60a5fa2e7"
+          }
+        }
+      ],
       "tree_sha256": "6bb249eddd4b25daabe2a53792e9663448e8ec8cac11a9acdc9d03484662bbee"
     }
   ]

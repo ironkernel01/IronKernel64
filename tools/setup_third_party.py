@@ -29,6 +29,7 @@
 #
 # Revision:
 #   11-09-2026  first version
+#   11-09-2026  --check also verifies the hashes of post-step outputs
 
 import argparse
 import hashlib
@@ -252,6 +253,20 @@ def run_post(entry, dest):
                                  % (entry["name"], out, got, want))
 
 
+def post_current(entry, dest):
+    """post_current -- tells whether every declared post-step output exists with its hash.
+
+    Returns: True when all outputs are present and match (an empty hash only needs presence).
+    """
+    for step in entry.get("post", []):
+        for out, want in step.get("outputs", {}).items():
+            path = dest / out
+            if not (path.is_file() and (not want or sha256_file(path) == want)):
+                print("  post output %s missing or changed" % out)
+                return False
+    return True
+
+
 def source_bytes(entry):
     """source_bytes -- SOURCE.txt content: the manifest pin plus the committed provenance note.
 
@@ -278,7 +293,7 @@ def source_current(entry, dest):
 def install(entry, dest_root, mirrors, update_hashes):
     """install -- installs one entry, or confirms an existing install is current.
 
-    Steps: skip when the installed digest matches the manifest and SOURCE.txt exists;
+    Steps: skip when the installed digest matches the manifest and the post outputs are current;
     otherwise fetch, build the file set in a staging directory, check the digest
     (or record it with --update-hashes), swap the staging directory in, then run post steps.
     Returns: True when the manifest digest changed (only with update_hashes).
@@ -286,7 +301,8 @@ def install(entry, dest_root, mirrors, update_hashes):
     name = entry["name"]
     dest = dest_root / name
     want = entry.get("tree_sha256", "")
-    if want and not update_hashes and installed_digest(entry, dest) == want:
+    if (want and not update_hashes and installed_digest(entry, dest) == want
+            and post_current(entry, dest)):
         if not source_current(entry, dest):
             (dest / SOURCE_NAME).write_bytes(source_bytes(entry))
             print("%-10s SOURCE.txt refreshed" % name)
@@ -330,6 +346,7 @@ def check(entry, dest_root):
     dest = dest_root / entry["name"]
     got = installed_digest(entry, dest)
     ok = got is not None and got == entry.get("tree_sha256") and source_current(entry, dest)
+    ok = ok and post_current(entry, dest)
     print("%-10s %s" % (entry["name"], "OK" if ok else ("MISSING" if got is None else "MISMATCH")))
     return ok
 

@@ -29,7 +29,7 @@
 #define C64_WIN_PS2_OFS                (0x00030000u)
 #define C64_WIN_SID_OFS                (0x00040000u)
 #define C64_WIN_BLOCK_SIZE             (0x00010000u)
-#define C64_WIN_SIZE                   (0x00040000u)
+#define C64_WIN_SIZE                   (0x00080000u)
 #define C64_WIN1_SYS_OFS               (0x00000000u)
 #define C64_WIN1_MAC_OFS               (0x00001000u)
 #define C64_WIN1_MDIO_OFS              (0x00002000u)

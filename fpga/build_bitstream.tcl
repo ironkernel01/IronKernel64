@@ -25,6 +25,9 @@
 #     a filelist inside a copied third-party tree (an ancestor directory with
 #     SOURCE.txt), which resolves against that tree's root (as
 #     scripts/ik64_run_sim.ps1 does).
+#   * reDIP-SID ($readmemh .hex tables and `include .svh files) lives in
+#     third_party/redip-sid/ik64; the +incdir in fpga/c64_top.f becomes
+#     synth_design -include_dirs, which is where Vivado finds them.
 #   * Expected crossing instances (a change fails the build until reviewed):
 #     fifo 5 (u_ddr_cdc u_aw/w/b/ar/r_fifo), axil_cdc 1 (u_arb register port),
 #     gray 2 (u_video frame and line counters). The audio sample FIFO is
@@ -55,6 +58,7 @@
 #     -Tcl <repo>/fpga/build_bitstream.tcl -Log <repo>/build/fpga/build.log
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version.
+#   * 11-09-2026: SID sources and tables via fpga/c64_top.f (+incdir); no gate changed.
 # -----------------------------------------------------------------------------
 
 # Script-relative roots.

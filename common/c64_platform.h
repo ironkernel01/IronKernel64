@@ -23,7 +23,7 @@
 
 /* Core 0: fabric register window (M_AXI_C64) -> c64_top window decoder 0. */
 #define C64_PLAT_WIN0_BASE       (0x44000000u)
-#define C64_PLAT_WIN0_RANGE      (0x00040000u)  /* = C64_WIN_SIZE */
+#define C64_PLAT_WIN0_RANGE      (0x00080000u)  /* = C64_WIN_SIZE */
 /* Core 1: fabric register window (M_AXI_DRV) -> c64_top window decoder 1,
  * RTLNet's window base and layout (C64_WIN1_*_OFS). */
 #define C64_PLAT_WIN1_BASE       (0x44A00000u)
