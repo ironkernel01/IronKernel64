@@ -1,0 +1,19 @@
+reDIP-SID -- MOS 6581/8580 SID emulation in gateware
+Author:  Dag Lem (also the author of reSID)
+License: CERN-OHL-S-2.0 (LICENSE; every .sv file carries the CERN-OHL-S v2 header)
+URL:     https://github.com/daglem/reDIP-SID
+Commit:  56608673b3a4e4f637afc026dca07ebdbf7d0769 (2024-09-23, "Correct MOS6581 combined waveforms")
+
+Installed: gateware/ (all files), LICENSE, README.md. hardware/ and research/ are not installed.
+
+Used by IronKernel 64 (fpga/hdl/sid_player.sv instantiates sid_api):
+  gateware/sid_pkg.sv sid_api.sv sid_control.sv sid_waveform.sv sid_waveform_PST.svh
+  sid_waveform__ST.svh sid_envelope.sv sid_pot.sv sid_dac.sv sid_voice.sv sid_filter.sv
+  and the dac_6581_*.hex and sid_waveform_*.hex tables.
+Not compiled (iCE40 board files): redip_sid.sv sid_io.sv ice40_init.sv i2s_dsp_mode.sv
+  sgtl5000_init.v i2c_master.v muacm.v cells_sim/.
+Substituted, not edited: gateware/muladd.sv instantiates the iCE40 SB_MAC16; IronKernel 64
+  compiles fpga/hdl/redip/muladd.sv (same module name and ports, inferred DSP48) instead.
+
+Licensing consequence: the bitstream that contains this core is distributed under
+CERN-OHL-S-2.0; IronKernel 64 gateware is "GPL-3.0-or-later OR CERN-OHL-S-2.0" (c64demo.md).

@@ -113,6 +113,18 @@
         }
       ],
       "tree_sha256": "ca98a505b4e33e348a7884b3bb376006ba361d0b08259dd2b9d9b9c0ef195b65"
+    },
+    {
+      "name": "redip-sid",
+      "url": "https://github.com/daglem/reDIP-SID.git",
+      "commit": "56608673b3a4e4f637afc026dca07ebdbf7d0769",
+      "license": "CERN-OHL-S-2.0",
+      "include": [
+        "gateware/",
+        "LICENSE",
+        "README.md"
+      ],
+      "tree_sha256": "6bb249eddd4b25daabe2a53792e9663448e8ec8cac11a9acdc9d03484662bbee"
     }
   ]
 }
