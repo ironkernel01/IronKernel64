@@ -68,6 +68,14 @@
 #define PET_SHIFT_SPACE       (0xA0u)
 #define PET_PI                (0xFFu)
 #define PET_LEFT_ARROW        (0x5Fu)
+#define PET_AT                (0x40u)
+#define PET_LETTER_A          (0x41u)
+#define PET_LETTER_Z          (0x5Au)
+#define PET_LBRACKET          (0x5Bu)
+#define PET_RBRACKET          (0x5Du)
+#define PET_UP_ARROW          (0x5Eu)
+#define PET_LOWER_A           (0x61u)
+#define PET_LOWER_Z           (0x7Au)
 #define TOKEN_FIRST           (0x80u)
 #define TOKEN_LAST            (0xCBu)
 #define SCREEN_REVERSE_SPACE  (0xA0u)
@@ -428,7 +436,8 @@ static void put_quoted(uint8_t c)
  *      left arrow -> '_'; pi ($FF) -> '~'; shift-space -> ' '.
  *   2. Shifted letters $C1-$DA are upper-case letters in the lower/upper set; in the
  *      upper/graphics set they are graphics.
- *   3. Horizontal line ($60, $C0) -> '-', vertical bar ($7D) -> '|'; every other graphic
+ *   3. Lower/upper set: $61-$7A show the same glyphs as $C1-$DA and map to 'A'-'Z'.
+ *   4. Horizontal line ($60, $C0) -> '-', vertical bar ($7D) -> '|'; every other graphic
  *      character has no ASCII equivalent and becomes '?'.
  * Returns: the ASCII character.
  */
@@ -436,19 +445,22 @@ static char petscii_to_ascii(uint8_t c)
 {
     int lower = (c64screen_charset() == C64SCREEN_CHARSET_LOWER);
 
-    if ((c >= PET_SPACE && c <= 0x40u) || c == 0x5Bu || c == 0x5Du) {
+    if ((c >= PET_SPACE && c <= PET_AT) || c == PET_LBRACKET || c == PET_RBRACKET) {
         return (char)c;
     }
-    if (c >= 0x41u && c <= 0x5Au) {
+    if (c >= PET_LETTER_A && c <= PET_LETTER_Z) {
         return (char)(lower ? c + 0x20u : c);
     }
     if (c >= PET_SHIFT_A && c <= PET_SHIFT_Z) {
         return lower ? (char)(c - 0x80u) : '?';
     }
+    if (lower && c >= PET_LOWER_A && c <= PET_LOWER_Z) {
+        return (char)(c - 0x20u);   /* $61-$7A show the glyphs of $C1-$DA */
+    }
     switch (c) {
     case PET_POUND:       return '#';
     case PET_LEFT_ARROW:  return '_';
-    case 0x5Eu:           return '^';
+    case PET_UP_ARROW:    return '^';
     case PET_PI:          return '~';
     case PET_SHIFT_SPACE: return ' ';
     case PET_HLINE:

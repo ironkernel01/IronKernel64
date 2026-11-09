@@ -22,7 +22,12 @@
  *   - Without the interrupt, audio_out_refill_due() also reports due when LEVEL <= THRESH.
  *   - audio_out_set_source(1) selects the fabric stream of sid_player as the FIFO source; the
  *     level then settles near empty (48 kHz in, 48 kHz out), so the low-level interrupt stays
- *     true: the ISR masks it once and nothing unmasks it.
+ *     true: the ISR masks it once and nothing unmasks it. In stream mode the interrupt stays
+ *     disabled (CTRL.IRQ_EN = 0): the condition is permanently pending, so it must never be
+ *     enabled there. Use audio_out_stream_start() (ENABLE only), not audio_out_enable(1).
+ *   - Stream start: set SRC=1 with ENABLE=0, wait until LEVEL >= AUDIO_OUT_PREFILL_SAMPLES,
+ *     then audio_out_stream_start(). With ENABLE=0 the FIFO fills and further pushes are
+ *     dropped, so the wait is bounded and SRC=1/ENABLE=0 is never left standing.
  * Headers hold contracts and constants; per-function commentary lives in the .c files.
  */
 #ifndef AUDIO_OUT_H
@@ -33,11 +38,13 @@
 #include "c64_regs.h"
 
 #define AUDIO_OUT_THRESHOLD     (C64_AUD_FIFO_DEPTH / 2u)          /* 1024 frames, 21 ms */
+#define AUDIO_OUT_PREFILL_SAMPLES (48u)  /* 1 ms at C64_AUD_SAMPLE_RATE_HZ (48000 / 1000) */
 #define AUDIO_OUT_PAL_BLOCK     (C64_AUD_SAMPLE_RATE_HZ / 50u)     /* 960 samples */
 
 void     audio_out_init(void);
 void     audio_out_enable(int on);
 void     audio_out_set_source(int fabric);  /* 1: sid_player stream (CTRL.SRC), 0: SAMPLE reg */
+void     audio_out_stream_start(void);     /* ENABLE=1, IRQ_EN=0 (stream mode) */
 void     audio_out_flush(void);
 void     audio_out_set_threshold(uint32_t frames);
 void     audio_out_isr(void *ref);

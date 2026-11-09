@@ -30,10 +30,10 @@
 #include "xil_io.h"         /* Xil_In8, Xil_In32, Xil_Out8, Xil_Out32 */
 #include "xil_printf.h"     /* xil_printf (fail-stop report) */
 #include "xmbox.h"          /* XMbox_* */
-#include "xparameters.h"    /* XPAR_MAILBOX_0_BASEADDR */
+#include "xparameters.h"    /* XPAR_MBOX_0_BASEADDR */
 #include "xstatus.h"        /* XST_SUCCESS, XST_FIFO_NO_ROOM */
 
-#define DC_MBOX_BASE        (XPAR_MAILBOX_0_BASEADDR)
+#define DC_MBOX_BASE        (XPAR_MBOX_0_BASEADDR)
 #define DC_REQ_BASE         (C64_PLAT_SHM_BASE + DRIVE_REQ_OFS)
 #define DC_REP_BASE         (C64_PLAT_SHM_BASE + DRIVE_REP_OFS)
 #define DC_DATA_BASE        (C64_PLAT_SHM_BASE + DRIVE_DATA_OFS)

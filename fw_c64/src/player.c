@@ -19,6 +19,13 @@
 #include <string.h>   /* memcpy */
 
 #define PLAYER_MS_PER_S   (1000u)
+/* Prefill wait limit: 5 ms of phi2 cycles, 5x the 1 ms the FIFO needs to reach
+ * AUDIO_OUT_PREFILL_SAMPLES (the stream delivers 48 frames per ms). */
+#define PLAYER_PREFILL_TIMEOUT_CYCLES   (C64_SID_PHI2_HZ / 200u)
+/* Hard poll bound, independent of the SID clock: one poll is at least one AXI
+ * read (>= 10 ns at 100 MHz), so 2,000,000 polls cover the 5 ms limit many times
+ * over even if CYCLE never advances. */
+#define PLAYER_PREFILL_MAX_POLLS        (2000000u)
 
 static psid_info_t g_info;
 static uint32_t g_song;          /* 1-based current song */
@@ -82,17 +89,30 @@ static psid_status_t begin_song(uint32_t song)
 /*
  * player_start -- load a PSID image and start its start song.
  * Steps:
- *   1. Fabric audio source, FIFO flushed, output enabled.
+ *   1. sidbus_reset starts the SID clock (CTRL.RUN; after power-up it is 0 and
+ *      neither CYCLE nor the 48 kHz stream advances); FIFO flushed, CTRL.SRC = 1 with
+ *      ENABLE = 0 and IRQ_EN = 0; wait for LEVEL >= AUDIO_OUT_PREFILL_SAMPLES (at most
+ *      PLAYER_PREFILL_TIMEOUT_CYCLES or PLAYER_PREFILL_MAX_POLLS), then ENABLE = 1.
  *   2. psid_load, psid_init of the start song.
  * Returns: BASIC_PLAYER_OK, or why the file was refused (output stopped again).
  */
 static basic_player_reason_t player_start(const uint8_t *file, uint32_t len)
 {
     psid_status_t st;
+    uint32_t t0;
+    uint32_t polls = 0u;
 
+    sidbus_reset(SIDBUS_MODEL_6581);
+    audio_out_enable(0);
     audio_out_flush();
     audio_out_set_source(1);
-    audio_out_enable(1);
+    t0 = sidbus_fabric_cycle();
+    while (audio_out_level() < AUDIO_OUT_PREFILL_SAMPLES &&
+           (sidbus_fabric_cycle() - t0) < PLAYER_PREFILL_TIMEOUT_CYCLES &&
+           polls < PLAYER_PREFILL_MAX_POLLS) {
+        polls++;
+    }
+    audio_out_stream_start();
     st = psid_load(file, len, &g_info);
     if (st == PSID_OK) {
         st = begin_song(g_info.start_song);
@@ -100,6 +120,7 @@ static basic_player_reason_t player_start(const uint8_t *file, uint32_t len)
     if (st != PSID_OK) {
         g_playing = 0;
         audio_out_enable(0);
+        audio_out_flush();
         audio_out_set_source(0);
         return map_load(st);
     }

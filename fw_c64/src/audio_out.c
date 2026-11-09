@@ -99,6 +99,17 @@ void audio_out_enable(int on)
 }
 
 /*
+ * audio_out_stream_start -- start the output in fabric-stream mode.
+ * Steps:
+ *   1. CTRL.ENABLE = 1 with IRQ_EN left 0 (the low-level condition is permanently true there).
+ * Returns: nothing.
+ */
+void audio_out_stream_start(void)
+{
+    ctrl_update(1u << C64_AUD_CTRL_ENABLE_BIT, 1u << C64_AUD_CTRL_IRQ_EN_BIT);
+}
+
+/*
  * audio_out_set_source -- select the sample source of the FIFO.
  * Steps:
  *   1. CTRL.SRC = 1: the FIFO takes the 48 kHz stream of sid_player (the SAMPLE register is

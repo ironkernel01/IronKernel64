@@ -231,10 +231,7 @@ $compileFailed = 0
 foreach ($s in $srcs) {
     $o = Join-Path $Obj (([System.IO.Path]::GetFileNameWithoutExtension($s)) + '.o')
     # Every file is compiled so one run reports all errors; the first failure class decides the exit.
-    # Workaround (drive_client.c is not owned here): the SDT BSP names the mailbox
-    # XPAR_MBOX_0_*, drive_client.c uses XPAR_MAILBOX_0_*; remove when drive_client.c follows the BSP.
-    $shim = $(if ([System.IO.Path]::GetFileName($s) -eq 'drive_client.c') { @('-DXPAR_MAILBOX_0_BASEADDR=XPAR_MBOX_0_BASEADDR') } else { @() })
-    $ok = Invoke-Native $Gcc ($mbflags + $shim + $cflags + $inc + @("-specs=$(Fwd $bspSpec)", '-c', (Fwd $s), '-o', (Fwd $o))) 30 "compile $([System.IO.Path]::GetFileName($s))" -Continue
+    $ok = Invoke-Native $Gcc ($mbflags + $cflags + $inc + @("-specs=$(Fwd $bspSpec)", '-c', (Fwd $s), '-o', (Fwd $o))) 30 "compile $([System.IO.Path]::GetFileName($s))" -Continue
     if ($ok) { $objs += $o } else { $compileFailed++ }
 }
 if ($compileFailed -gt 0) { Stop-Build 30 "$compileFailed source file(s) failed to compile" }
