@@ -33,6 +33,16 @@
  *     device 8 (no tape); text after LOAD's device / secondary address is ignored, so a
  *     directory line edited into LOAD"NAME",8 works even with the rest of the old line
  *     still on screen; LIST ignores line ranges; LIST of a SID file prints nothing.
+ *   - UART mirror (cfg->uart_out, called once per ASCII byte; main.c wires it to the BSP's
+ *     outbyte()): everything printed on the screen is also sent as ASCII, in keyboard and CLI
+ *     mode alike. PETSCII letters/digits/punctuation map to ASCII (case follows the current
+ *     character set); graphics without an ASCII equivalent become '?', pound '#', pi '~'.
+ *     RETURN -> CR LF, DEL -> BS SP BS, CLR -> CR LF, colour / reverse / cursor / home /
+ *     insert codes -> nothing. When a line was edited with cursor, home, insert or delete
+ *     keys, RETURN first sends CR LF and the logical line as executed. The now-playing
+ *     screen sends NAME / AUTHOR / RELEASED / SONG nn/mm on open and on song change, and
+ *     "\rTIME mm:ss" whenever the shown time changes (no voice bars); closing ends the line
+ *     with CR LF before BREAK / READY.
  * Headers hold contracts and constants; per-function commentary lives in the .c files.
  */
 #ifndef BASIC_H
@@ -82,6 +92,7 @@ typedef struct
     const basic_player_ops_t *player;  /* NULL: RUN on a SID gives ?FILE TYPE MISMATCH */
     uint8_t  *load_buf;                /* LOAD target (caller-owned, static) */
     uint32_t  load_buf_bytes;
+    void (*uart_out)(char c);          /* ASCII mirror of the screen; NULL = off */
 } basic_config_t;
 
 void basic_init(const basic_config_t *cfg);

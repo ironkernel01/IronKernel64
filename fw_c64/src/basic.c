@@ -50,7 +50,18 @@
 #define BASIC_S_PER_MIN       (60u)
 #define BASIC_MAX_SONG_KEY    (9u)
 
+#define BASIC_UART_STR_MAX    (80u)       /* longest string sent to the UART mirror */
+#define BASIC_SECS_NONE       (0xFFFFFFFFu) /* now-playing time line not started */
+
 #define PET_RETURN            (0x0Du)
+#define PET_DEL               (0x14u)
+#define PET_CLR               (0x93u)
+#define PET_POUND             (0x5Cu)
+#define PET_HLINE             (0x60u)
+#define PET_VBAR              (0x7Du)
+#define PET_SHIFT_HLINE       (0xC0u)
+#define PET_SHIFT_A           (0xC1u)
+#define PET_SHIFT_Z           (0xDAu)
 #define PET_SHIFT_RETURN      (0x8Du)
 #define PET_QUOTE             (0x22u)
 #define PET_SPACE             (0x20u)
@@ -130,6 +141,7 @@ static uint8_t  g_colour;
 static int      g_rvs;
 static int      g_quote;
 static uint32_t g_insert;
+static int      g_edited;    /* cursor/insert/delete key used on the line since RETURN */
 static uint32_t g_load_len;
 static uint8_t  g_line[BASIC_LINE_MAX + 1u];
 static uint8_t  g_dir_chunk[BASIC_DIR_CHUNK];
@@ -143,6 +155,7 @@ static uint32_t g_saved_col;
 static uint8_t  g_saved_colour;
 static basic_tune_info_t g_tune;
 static uint32_t g_song;
+static uint32_t g_np_secs = BASIC_SECS_NONE;  /* play time last sent to the UART */
 
 /* ---------------------------------------------------------------------------------------
  * Screen editor primitives
@@ -408,6 +421,82 @@ static void put_quoted(uint8_t c)
 }
 
 /*
+ * petscii_to_ascii -- ASCII stand-in for a printable PETSCII character.
+ * Steps:
+ *   1. $20-$3F, '@', '[', ']' map to themselves; $41-$5A are letters: upper case in the
+ *      upper/graphics set, lower case in the lower/upper set; pound -> '#', up arrow -> '^',
+ *      left arrow -> '_'; pi ($FF) -> '~'; shift-space -> ' '.
+ *   2. Shifted letters $C1-$DA are upper-case letters in the lower/upper set; in the
+ *      upper/graphics set they are graphics.
+ *   3. Horizontal line ($60, $C0) -> '-', vertical bar ($7D) -> '|'; every other graphic
+ *      character has no ASCII equivalent and becomes '?'.
+ * Returns: the ASCII character.
+ */
+static char petscii_to_ascii(uint8_t c)
+{
+    int lower = (c64screen_charset() == C64SCREEN_CHARSET_LOWER);
+
+    if ((c >= PET_SPACE && c <= 0x40u) || c == 0x5Bu || c == 0x5Du) {
+        return (char)c;
+    }
+    if (c >= 0x41u && c <= 0x5Au) {
+        return (char)(lower ? c + 0x20u : c);
+    }
+    if (c >= PET_SHIFT_A && c <= PET_SHIFT_Z) {
+        return lower ? (char)(c - 0x80u) : '?';
+    }
+    switch (c) {
+    case PET_POUND:       return '#';
+    case PET_LEFT_ARROW:  return '_';
+    case 0x5Eu:           return '^';
+    case PET_PI:          return '~';
+    case PET_SHIFT_SPACE: return ' ';
+    case PET_HLINE:
+    case PET_SHIFT_HLINE: return '-';
+    case PET_VBAR:        return '|';
+    default:              return '?';
+    }
+}
+
+/*
+ * uart_str -- send an ASCII string to the mirror (CR, LF, BS and printable ASCII as is,
+ * anything else as '?'); at most BASIC_UART_STR_MAX characters.
+ * Returns: nothing.
+ */
+static void uart_str(const char *s)
+{
+    if (g_cfg.uart_out == NULL) {
+        return;
+    }
+    for (uint32_t i = 0u; i < BASIC_UART_STR_MAX && s[i] != '\0'; i++) {
+        char c = s[i];
+        g_cfg.uart_out((c == '\r' || c == '\n' || c == '\b' || (c >= ' ' && c <= '~')) ? c : '?');
+    }
+}
+
+/*
+ * mirror -- copy one PETSCII output character to the UART as ASCII.
+ * Steps:
+ *   1. RETURN / Shift+RETURN / CLR -> CR LF; DEL -> backspace, space, backspace.
+ *   2. Other control codes (colour, reverse, cursor, home, insert, charset) -> nothing.
+ *   3. Printable characters -> petscii_to_ascii.
+ * Returns: nothing.
+ */
+static void mirror(uint8_t c)
+{
+    if (g_cfg.uart_out == NULL) {
+        return;
+    }
+    if (c == PET_RETURN || c == PET_SHIFT_RETURN || c == PET_CLR) {
+        uart_str("\r\n");
+    } else if (c == PET_DEL) {
+        uart_str("\b \b");
+    } else if (!is_control(c)) {
+        g_cfg.uart_out(petscii_to_ascii(c));
+    }
+}
+
+/*
  * emit -- print one PETSCII character at the cursor (the CHROUT of this editor).
  * Steps:
  *   1. RETURN / Shift+RETURN: next line.
@@ -415,6 +504,9 @@ static void put_quoted(uint8_t c)
  *      (cursor keys, HOME, CLR, DEL, INST, RVS, character set, colours).
  *   3. Printable characters: screen code in the current colour (reverse with RVS ON);
  *      '"' toggles quote mode.
+ *   4. Each character that acts is also copied to the UART by mirror(); control codes shown
+ *      reversed (quote / insert mode) and characters without a screen code are not.
+ *      A cursor / home / clear / insert / delete key sets g_edited.
  * Returns: nothing.
  */
 static void emit(uint8_t c)
@@ -423,6 +515,7 @@ static void emit(uint8_t c)
     int colour;
 
     if (c == PET_RETURN || c == PET_SHIFT_RETURN) {
+        mirror(c);
         next_line();
         return;
     }
@@ -436,6 +529,12 @@ static void emit(uint8_t c)
             g_colour = (uint8_t)colour;
             return;
         }
+        if (c == KEYBOARD_KEY_DOWN || c == KEYBOARD_KEY_UP || c == KEYBOARD_KEY_RIGHT ||
+            c == KEYBOARD_KEY_LEFT || c == KEYBOARD_KEY_HOME || c == KEYBOARD_KEY_CLR ||
+            c == KEYBOARD_KEY_DEL || c == KEYBOARD_KEY_INST) {
+            g_edited = 1;
+        }
+        mirror(c);
         switch (c) {
         case KEYBOARD_KEY_DOWN:       cursor_down(); break;
         case KEYBOARD_KEY_UP:         cursor_up(); break;
@@ -456,6 +555,7 @@ static void emit(uint8_t c)
     if (!c64screen_petscii_to_code(c, &code)) {
         return;
     }
+    mirror(c);
     if (g_rvs) {
         code |= C64SCREEN_REVERSE_BIT;
     }
@@ -960,7 +1060,8 @@ static uint32_t np_number(char *out, uint32_t v)
 /*
  * np_update -- refresh song number, time and the three voice bars.
  * Steps:
- *   1. SONG nn/mm; TIME mm:ss from player->elapsed_ms.
+ *   1. SONG nn/mm; TIME mm:ss from player->elapsed_ms. The UART gets "\rTIME mm:ss" only
+ *      when the displayed time changed; the voice bars are not mirrored.
  *   2. Each voice bar is BASIC_BAR_CELLS cells: reverse spaces for level * cells / 255,
  *      plain spaces for the rest.
  * Returns: nothing.
@@ -983,6 +1084,11 @@ static void np_update(void)
     n += np_number(&buf[n], secs % BASIC_S_PER_MIN);
     buf[n] = '\0';
     np_text(NP_ROW_TIME, BASIC_FIELD_COL, buf, BASIC_FIELD_CELLS, C64SCREEN_BOOT_TEXT);
+    if (secs != g_np_secs) {
+        g_np_secs = secs;
+        uart_str("\rTIME ");
+        uart_str(buf);
+    }
 
     g_cfg.player->voice_levels(level);
     for (uint32_t v = 0u; v < BASIC_VOICES; v++) {
@@ -996,10 +1102,47 @@ static void np_update(void)
 }
 
 /*
+ * np_mirror_song -- send the SONG nn/mm line to the UART and restart the TIME line.
+ * Steps:
+ *   1. Finish an open TIME line with CR LF.
+ *   2. Send "SONG nn/mm" and CR LF; np_update then sends TIME again.
+ * Returns: nothing.
+ */
+static void np_mirror_song(void)
+{
+    char buf[BASIC_COLS];
+    uint32_t n;
+
+    if (g_np_secs != BASIC_SECS_NONE) {
+        uart_str("\r\n");
+        g_np_secs = BASIC_SECS_NONE;
+    }
+    uart_str("SONG ");
+    n = np_number(buf, g_song);
+    buf[n++] = '/';
+    n += np_number(&buf[n], g_tune.songs);
+    buf[n] = '\0';
+    uart_str(buf);
+    uart_str("\r\n");
+}
+
+/*
+ * np_mirror_text -- send "<label><tune text>" and CR LF to the UART.
+ * Returns: nothing.
+ */
+static void np_mirror_text(const char *label, const char *text)
+{
+    uart_str(label);
+    uart_str(text);
+    uart_str("\r\n");
+}
+
+/*
  * np_open -- replace the editor screen with the now-playing screen.
  * Steps:
  *   1. Save the editor screen and cursor; clear; hide the cursor.
  *   2. Write the static labels and the tune's name, author and released fields.
+ *   3. Send NAME / AUTHOR / RELEASED / SONG lines to the UART.
  * Returns: nothing.
  */
 static void np_open(void)
@@ -1028,16 +1171,25 @@ static void np_open(void)
     np_text(NP_ROW_AUTHOR, BASIC_FIELD_COL, g_tune.author, BASIC_FIELD_CELLS, VIDEO_COL_WHITE);
     np_text(NP_ROW_RELEASED, BASIC_FIELD_COL, g_tune.released, BASIC_FIELD_CELLS,
             VIDEO_COL_WHITE);
+    np_mirror_text("NAME ", g_tune.name);
+    np_mirror_text("AUTHOR ", g_tune.author);
+    np_mirror_text("RELEASED ", g_tune.released);
+    np_mirror_song();
     np_update();
 }
 
 /*
  * np_close -- RUN/STOP: stop the player, restore the editor screen, print BREAK / READY.
+ *   The UART's TIME line is ended with CR LF first.
  * Returns: nothing.
  */
 static void np_close(void)
 {
     g_cfg.player->stop();
+    if (g_np_secs != BASIC_SECS_NONE) {
+        uart_str("\r\n");
+        g_np_secs = BASIC_SECS_NONE;
+    }
     c64screen_restore(&g_saved_screen);
     g_row = g_saved_row;
     g_col = g_saved_col;
@@ -1052,13 +1204,14 @@ static void np_close(void)
 }
 
 /*
- * np_select -- switch to another song when it exists.
+ * np_select -- switch to another song when it exists (and mirror the new SONG line).
  * Returns: nothing.
  */
 static void np_select(uint32_t song)
 {
     if (song >= 1u && song <= g_tune.songs && g_cfg.player->select_song(song) == 0) {
         g_song = song;
+        np_mirror_song();
     }
 }
 
@@ -1171,24 +1324,41 @@ static void execute(void)
 /*
  * handle_key -- one key in the screen editor.
  * Steps:
- *   1. RETURN: read the logical line, go to the next line, execute.
- *   2. DEL / INST always edit; RUN/STOP does nothing in the editor.
+ *   1. RETURN: read the logical line, go to the next line, execute. The UART gets CR LF;
+ *      when g_edited, it first gets CR LF and the logical line as ASCII (the live echo of
+ *      an edited line is not what execute() reads).
+ *   2. DEL (mirrored as BS SP BS) / INST always edit; RUN/STOP does nothing in the editor.
  *   3. Everything else is emitted (control codes quoted in quote / insert mode).
  * Returns: nothing.
  */
 static void handle_key(uint8_t k)
 {
+    uint32_t n;
+
     switch (k) {
     case PET_RETURN:
-        (void)read_line();
+        n = read_line();
+        if (g_edited) {
+            mirror(PET_RETURN);
+            for (uint32_t i = 0u; i < n; i++) {
+                if (!is_control(g_line[i])) {
+                    mirror(g_line[i]);
+                }
+            }
+        }
+        g_edited = 0;
+        mirror(PET_RETURN);
         next_line();
         execute();
         return;
     case KEYBOARD_KEY_DEL:
+        g_edited = 1;
+        mirror(k);
         delete_char();
         g_insert = 0u;
         return;
     case KEYBOARD_KEY_INST:
+        g_edited = 1;
         insert_char();
         return;
     case KEYBOARD_KEY_RUN_STOP:
@@ -1285,6 +1455,8 @@ void basic_init(const basic_config_t *cfg)
     g_rvs = 0;
     g_quote = 0;
     g_insert = 0u;
+    g_edited = 0;
+    g_np_secs = BASIC_SECS_NONE;
     c64screen_init();
     g_colour = C64SCREEN_BOOT_TEXT;
     if (g_cfg.mem_info != NULL) {
