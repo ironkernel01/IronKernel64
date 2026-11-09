@@ -19,12 +19,21 @@ Overview:
 Usage: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ik64_regression.ps1 [-Match <regex>]
 Revision: 11-09-2026
   * 11-09-2026: initial version, derived from RTLNet scripts/rtlnet_regression.ps1.
+  * 11-09-2026: setup guard (tools/setup_third_party.py --check) before anything runs.
 -------------------------------------------------------------------------------
 #>
 param([string]$Match = '.')
 $ErrorActionPreference = 'Stop'
 $Repo   = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Runner = Join-Path $PSScriptRoot 'ik64_run_sim.ps1'
+
+# Setup guard: pinned third-party trees must match tools/third_party.json.
+$guard = & python -I (Join-Path $Repo 'tools/setup_third_party.py') --check 2>&1
+if ($LASTEXITCODE -ne 0) {
+    $guard | ForEach-Object { Write-Output "$_" }
+    Write-Output 'IK64_REGRESSION: third-party setup check failed; run: python -I tools/setup_third_party.py'
+    exit 2
+}
 
 # Files allowed to hold a two-edge sensitivity list. Empty: every synchronizer
 # and reset bridge comes from third_party/rtlnet (rtlnet_reset_sync.sv), which

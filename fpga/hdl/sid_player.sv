@@ -22,8 +22,8 @@
 //       SID_RDBK    RO [7:0] OSC3 (reg $1B), [15:8] ENV3 (reg $1C), each
 //                      updated about every other phi2 cycle.
 //   * phi2: exact rational NCO on cpu_clk. acc += 2 * SID_PHI2_HZ per clock;
-//     when acc >= CPU_CLK_HZ it subtracts CPU_CLK_HZ and phi2 toggles. The mean
-//     phi2 rate is exactly SID_PHI2_HZ; each phase is 50 or 51 clocks (>= 20,
+//     when acc >= CLK_HZ it subtracts CLK_HZ and phi2 toggles. The mean
+//     phi2 rate is exactly SID_PHI2_HZ; each phase is 25 or 26 clocks at 50 MHz (>= 20,
 //     the SID pipeline's budget per phi2 cycle).
 //   * Write FIFO: SID_FIFO_DEPTH x {time[31:0], reg[4:0], val[7:0]}, block RAM
 //     with a registered read of the head entry. Pushes are ANDed with !full;
@@ -53,7 +53,7 @@
 //   * Audio: audio_o.left (s24) is taken once per phi2 cycle into two cascaded
 //     moving sums of SID_DECIM_TAPS (gain 20 * 20 = 400, delay lines are
 //     shift registers). On each exact 48 kHz tick (acc += 48,000 against
-//     CPU_CLK_HZ, so it matches sid_audio_out's drain rate exactly) the second
+//     CLK_HZ, so it matches sid_audio_out's drain rate exactly) the second
 //     sum is scaled by 1/400 and by 1/256 (s24 to s16, the core's 24-bit word
 //     carries the 16-bit sample in its top bits), saturated to s16 and sent as
 //     strm_valid (1 clock) with strm_sample.
@@ -62,11 +62,13 @@
 //     block's own logic.
 // Language: SystemVerilog-2012.
 // Revision: 11-09-2026
-//   * 11-09-2026: initial version.
-// Clocks: cpu_clk (100 MHz) only; cpu_resetn is synchronous to it.
+//   * 11-09-2026: initial version; CLK_HZ parameter (runs on the 50 MHz sid_clk).
+// Clocks: the port cpu_clk (CLK_HZ, 50 MHz sid_clk in c64_top) only; cpu_resetn is synchronous to it.
 // -----------------------------------------------------------------------------
-module sid_player (
-  // cpu_clk domain: 100 MHz CPU/AXI/SID clock and its synchronous active-low
+module sid_player #(
+  parameter int CLK_HZ = c64_pkg::CPU_CLK_HZ   // frequency of the clock on the cpu_clk port (u_sid: SID_CLK_HZ)
+) (
+  // cpu_clk port: CLK_HZ AXI/SID clock (sid_clk in c64_top) and its synchronous active-low
   // reset (this block's own logic only; the SID core has no reset).
   input  logic                          cpu_clk,
   input  logic                          cpu_resetn,
@@ -105,7 +107,7 @@ module sid_player (
   localparam int ADDR_W    = REG_ADDR_W;
   localparam int PTR_W     = $clog2(SID_FIFO_DEPTH);
   localparam int ENTRY_W   = 32 + 5 + 8;                              // {time, reg, val}
-  localparam int NCO_W     = $clog2(CPU_CLK_HZ + 2 * SID_PHI2_HZ);
+  localparam int NCO_W     = $clog2(CLK_HZ + 2 * SID_PHI2_HZ);
   localparam int N1_W      = 24 + $clog2(SID_DECIM_TAPS);             // first moving sum
   localparam int N2_W      = N1_W + $clog2(SID_DECIM_TAPS);           // second moving sum
   localparam int GAIN      = SID_DECIM_TAPS * SID_DECIM_TAPS;         // 400
@@ -115,12 +117,12 @@ module sid_player (
   localparam logic [4:0] REG_OSC3 = 5'h1B;
   localparam logic [4:0] REG_ENV3 = 5'h1C;
   localparam logic [NCO_W-1:0] PHI2_STEP = NCO_W'(2 * SID_PHI2_HZ);
-  localparam logic [NCO_W-1:0] CLK_HZ    = NCO_W'(CPU_CLK_HZ);
+  localparam logic [NCO_W-1:0] CLK_N     = NCO_W'(CLK_HZ);
   localparam logic [NCO_W-1:0] AUD_STEP  = NCO_W'(AUD_SAMPLE_RATE_HZ);
 
   generate
     if (SID_FIFO_DEPTH != (1 << PTR_W) || SID_LEVEL_W != PTR_W + 1 || SID_DECIM_TAPS < 2 ||
-        2 * SID_PHI2_HZ * 20 > CPU_CLK_HZ * 2) begin : g_bad_geometry
+        2 * SID_PHI2_HZ * 20 > CLK_HZ * 2) begin : g_bad_geometry
       $fatal(1, "sid_player: SID_FIFO_DEPTH=%0d must be a power of two and SID_LEVEL_W=%0d = log2 + 1; phi2 needs >= 20 clocks per cycle",
              SID_FIFO_DEPTH, SID_LEVEL_W);
     end
@@ -282,7 +284,7 @@ module sid_player (
   // phi2 NCO, cycle counter and the replay bus.
   // ---------------------------------------------------------------------------
   assign phi2_sum  = phi2_acc + PHI2_STEP;
-  assign phi2_tick = ctrl_run && (phi2_sum >= CLK_HZ);
+  assign phi2_tick = ctrl_run && (phi2_sum >= CLK_N);
   assign phi2_rise = phi2_tick && !bus_i.phi2;
   assign phi2_fall = phi2_tick && bus_i.phi2;
   assign due       = head_ok && !ctrl_reset && ($signed(cycle_cnt - head[ENTRY_W-1-:32]) >= 0);
@@ -303,7 +305,7 @@ module sid_player (
       bus_i.res <= ctrl_reset;
 
       if (ctrl_run) begin
-        phi2_acc <= phi2_tick ? phi2_sum - CLK_HZ : phi2_sum;
+        phi2_acc <= phi2_tick ? phi2_sum - CLK_N : phi2_sum;
       end
       if (phi2_tick) bus_i.phi2 <= !bus_i.phi2;
 
@@ -359,7 +361,7 @@ module sid_player (
   // Delay lines have no reset: SRL-style shift registers, zero at power-up.
   // ---------------------------------------------------------------------------
   assign aud_sum  = aud_acc + AUD_STEP;
-  assign aud_tick = ctrl_run && (aud_sum >= CLK_HZ);
+  assign aud_tick = ctrl_run && (aud_sum >= CLK_N);
 
   always_ff @(posedge cpu_clk) begin
     if (cic1_en) dl1 <= {dl1[SID_DECIM_TAPS-2:0], cic_in};
@@ -392,7 +394,7 @@ module sid_player (
       cic2_en <= cic1_en;
       if (phi2_rise) cic_in <= sid_audio.left;
 
-      if (ctrl_run) aud_acc <= aud_tick ? aud_sum - CLK_HZ : aud_sum;
+      if (ctrl_run) aud_acc <= aud_tick ? aud_sum - CLK_N : aud_sum;
 
       strm_pipe <= {strm_pipe[1:0], aud_tick};
       scale_in  <= sum2 >>> 8;

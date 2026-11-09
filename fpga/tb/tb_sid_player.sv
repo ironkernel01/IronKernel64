@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // File: tb_sid_player.sv
 // Purpose: self-checking bench for sid_player with the real reDIP-SID core:
-//   AXI4-Lite pushes of timestamped SID writes on cpu_clk (100 MHz), bus-level
+//   AXI4-Lite pushes of timestamped SID writes on cpu_clk (the 50 MHz sid_clk, CLK_HZ = SID_CLK_HZ), bus-level
 //   monitors on the core's input, OSC3 read-back and the 48 kHz stream.
 // Cases:
 //   A. Rates: phi2 falling edges in 1 ms = 985 +-1; 48 kHz ticks in 10 ms =
@@ -31,7 +31,7 @@ module tb_sid_player;
   import c64_pkg::*;
 
   localparam int  AW         = REG_ADDR_W;
-  localparam real T_CPU_HALF = 5.0;                      // 100 MHz
+  localparam real T_CPU_HALF = 10.0;                     // 50 MHz (sid_clk)
   localparam logic [31:0] C_RUN   = 32'h1 << SID_CTRL_RUN_BIT;
   localparam logic [31:0] C_RESET = 32'h1 << SID_CTRL_RESET_BIT;
   localparam logic [31:0] S_OVF   = 32'h1 << SID_STATUS_OVERFLOW_BIT;
@@ -56,7 +56,7 @@ module tb_sid_player;
     .wvalid(wvalid), .wready(wready), .bresp(bresp), .bvalid(bvalid), .bready(bready), .araddr(araddr),
     .arvalid(arvalid), .arready(arready), .rdata(rdata), .rresp(rresp), .rvalid(rvalid), .rready(rready));
 
-  sid_player u_dut (
+  sid_player #(.CLK_HZ(SID_CLK_HZ)) u_dut (
     .cpu_clk(cpu_clk), .cpu_resetn(cpu_resetn),
     .s_axi_awaddr(awaddr), .s_axi_awvalid(awvalid), .s_axi_awready(awready), .s_axi_wdata(wdata),
     .s_axi_wstrb(wstrb), .s_axi_wvalid(wvalid), .s_axi_wready(wready), .s_axi_bresp(bresp),
@@ -274,7 +274,7 @@ module tb_sid_player;
       end
       prev_osc = osc;
       nsamp++;
-      repeat (2000) @(posedge cpu_clk);        // 20 us, about 20 phi2 cycles
+      repeat (1000) @(posedge cpu_clk);        // 20 us, about 20 phi2 cycles
     end
     tb_check(up >= 60 && bad == 0, $sformatf("OSC3: %0d increases, %0d non-wrap decreases in %0d samples (wraps %0d)", up, bad, nsamp, wraps));
     tb_check(r[15:8] === r[15:8] && ^r[15:8] !== 1'bx, "ENV3 read-back known");

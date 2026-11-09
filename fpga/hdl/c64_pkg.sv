@@ -29,6 +29,7 @@ package c64_pkg;
   // ---------------------------------------------------------------------------
   localparam int REG_ADDR_W = 16;                      // 64 KiB AXI4-Lite window per block
   localparam int CPU_CLK_HZ = 100_000_000;             // cpu_clk, the one fabric clock domain of core 0
+  localparam int SID_CLK_HZ = 50_000_000;              // sid_clk: sid_player, the reDIP-SID core (needs >= 20 clocks per phi2)
 
   // Core 0 fabric window: the BD exports one AXI4-Lite master (M_AXI_C64,
   // base C64_WINDOW_BASE owned by fpga/bd/c64_bd.tcl); c64_top splits it with

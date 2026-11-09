@@ -29,9 +29,11 @@
 #     third_party/redip-sid/ik64; the +incdir in fpga/c64_top.f becomes
 #     synth_design -include_dirs, which is where Vivado finds them.
 #   * Expected crossing instances (a change fails the build until reviewed):
-#     fifo 5 (u_ddr_cdc u_aw/w/b/ar/r_fifo), axil_cdc 1 (u_arb register port),
-#     gray 2 (u_video frame and line counters). The audio sample FIFO is
-#     xpm_fifo_async, whose crossings carry the XPM macro's own constraints.
+#     fifo 5 (u_ddr_cdc u_aw/w/b/ar/r_fifo), axil_cdc 2 (u_arb register port,
+#     u_sid_cdc SID register slot), gray 2 (u_video frame and line counters).
+#     The audio sample FIFO and the SID stream FIFO (u_sid_strm) are
+#     xpm_fifo_async, which rtlnet_constrain_cdc.tcl does not count as a class;
+#     their crossings carry the XPM macro's own constraints.
 #   * Gates (each its own exit code; nothing is written past a failed gate):
 #       99 bad arguments            11 missing source, filelist or XDC
 #       12 block design or IP       10 synthesis error or critical warning
@@ -42,12 +44,14 @@
 #                                      unconstrained endpoints, loops
 #       23 user asynchronous reset endpoints or latches outside the named
 #          exceptions (rtlnet_reset_sync, vendor block design u_cpu, vendor
-#          DDR3 IP, the audio FIFO's XPM macro)
+#          DDR3 IP, the XPM macros of the audio and SID stream FIFOs)
 #       24 critical warnings during implementation
 #       27 report_cdc Critical/Warning finding, or a methodology finding
 #          (Warning or worse) without a waiver in this script
 #       40 write_bitstream          41 write_mem_info
 #       42 write_hw_platform
+#       14 third-party setup check failed (python -I tools/setup_third_party.py --check;
+#          the script's first step)
 #   * Reports in build/fpga/reports: utilization post-synth and post-route,
 #     timing summary, CDC (report_cdc -details), methodology, DRC,
 #     check_timing, clock networks, clock interaction, I/O, failing paths.
@@ -57,6 +61,8 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File third_party/rtlnet/scripts/rtlnet_vivado.ps1 `
 #     -Tcl <repo>/fpga/build_bitstream.tcl -Log <repo>/build/fpga/build.log
 # Revision: 11-09-2026
+#   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
+#     u_sid_strm/u_fifo joins the async-reset exceptions.
 #   * 11-09-2026: initial version.
 #   * 11-09-2026: SID sources and tables via fpga/c64_top.f (+incdir); no gate changed.
 # -----------------------------------------------------------------------------
@@ -70,6 +76,13 @@ set RPT_DIR    [file join $BUILD_DIR reports]
 set PART       xc7a200tsbg484-1
 set TOP        c64_top
 set UTIL_LIMIT 80.0
+
+# Setup guard: the pinned third-party trees must match tools/third_party.json.
+if {[catch {exec python -I [file join $REPO tools setup_third_party.py] --check 2>@1} guard_out]} {
+  puts $guard_out
+  puts "ik64_build: FAIL (14) third-party setup check failed; run: python -I tools/setup_third_party.py"
+  exit 14
+}
 
 proc nv_exit {code msg} {
   puts "ik64_build: FAIL ($code) $msg"
@@ -214,7 +227,7 @@ foreach re $mig_re_list {
 
 # Crossing constraints by cell name (counts in the header).
 set ::rtlnet_cdc_required {sync reset gray fifo axil_cdc}
-set ::rtlnet_cdc_expect   {fifo 5 axil_cdc 1 gray 2}
+set ::rtlnet_cdc_expect   {fifo 5 axil_cdc 2 gray 2}
 set ::rtlnet_cdc_report   [file join $RPT_DIR cdc_instances.txt]
 if {[catch {source [file join $RTLNET scripts rtlnet_constrain_cdc.tcl]} err]} { nv_exit 13 "CDC constraints: $err" }
 
@@ -315,7 +328,8 @@ puts "ik64_build: utilization [join $util_summary {, }]"
 # Gate: asynchronous clear/preset endpoints and latches. Named exceptions:
 # rtlnet_reset_sync instances (u_rst_*), the vendor block design (u_cpu), the
 # vendor DDR3 controller IP (u_ddr/g_amd.u_ddr/u_mig) and the XPM macro of the
-# audio sample FIFO (u_audio/u_fifo, xpm_fifo_async internal reset logic).
+# audio sample FIFO (u_audio/u_fifo) and the SID stream FIFO (u_sid_strm/u_fifo),
+# both xpm_fifo_async internal reset logic.
 # ---------------------------------------------------------------------------
 set latches [get_cells -quiet -hierarchical -filter {PRIMITIVE_SUBGROUP == latch || REF_NAME =~ LD*}]
 set n_async_rs 0
@@ -334,10 +348,10 @@ foreach c [get_cells -quiet -hierarchical -filter {REF_NAME == FDCE || REF_NAME 
   if {[regexp {/pipe_reg\[[0-9]+\]$} $c] && [regexp {(^| )rtlnet_reset_sync} $pref]} { incr n_async_rs; continue }
   if {[string match "u_cpu/*" $c]} { incr n_async_bd; continue }
   if {[string match "u_ddr/g_amd.u_ddr/u_mig/*" $c]} { incr n_async_mig; continue }
-  if {[string match "u_audio/u_fifo/*" $c]} { incr n_async_xpm; continue }
+  if {[string match "u_audio/u_fifo/*" $c] || [string match "u_sid_strm/u_fifo/*" $c]} { incr n_async_xpm; continue }
   lappend bad_async $c
 }
-puts "ik64_build: asynchronous reset endpoints: rtlnet_reset_sync $n_async_rs, vendor block design $n_async_bd, vendor memory controller $n_async_mig, XPM audio FIFO $n_async_xpm, other [llength $bad_async]; latches [llength $latches]"
+puts "ik64_build: asynchronous reset endpoints: rtlnet_reset_sync $n_async_rs, vendor block design $n_async_bd, vendor memory controller $n_async_mig, XPM audio and SID stream FIFOs $n_async_xpm, other [llength $bad_async]; latches [llength $latches]"
 if {[llength $latches] > 0} { nv_exit 23 "latches: [lrange $latches 0 9]" }
 if {[llength $bad_async] > 0} { nv_exit 23 "user asynchronous reset endpoints: [lrange $bad_async 0 9]" }
 
@@ -398,6 +412,9 @@ set meth_waivers {
   {PDRC-190 {^The FDRE cell u_ddr/g_amd\.u_ddr/u_mig/u_rtlnet_ddr_mig_mig/temp_mon_enabled\.u_tempmon/device_temp_sync_r5_reg\[([0-9]|1[01])\] in site }
             {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: vendor-generated temperature monitor, cells temp_mon_enabled.u_tempmon/device_temp_sync_r5_reg[0..11] (XADC temperature synchronizer); the placement is fixed by the vendor IP}
             {0 1 2 3 4 5 6 7 8 9 10 11}}
+  {SYNTH-6 {^The timing for the instance (u_sid/mem_reg|u_sid/u_sid/filter/w0_T_lsl17_6581_reg|u_sid/u_sid/waveform/p_t_6581_reg|u_sid/u_sid/waveform/ps__6581_reg), implemented as a RAM block, might be sub-optimal as no output register was merged into the block\.}
+           {sid_clk domain (50 MHz), post-route WNS of the domain above 6 ns: the reDIP-SID table ROMs (upstream, unmodified, read with zero added latency by design) and the sid_player write FIFO RAM, whose output register would add a read cycle with no timing need}
+           {u_sid/mem_reg u_sid/u_sid/filter/w0_T_lsl17_6581_reg u_sid/u_sid/waveform/p_t_6581_reg u_sid/u_sid/waveform/ps__6581_reg}}
   {XDCB-5 {^The option '-to : \[get_pins -hier -include_replicated_objects -filter \{NAME =~ \*temp_mon_enabled\.u_tempmon/device_temp_sync_r1_reg\[\*\]/D\}\]' of constraint 'set_max_delay' }
           {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: the vendor-generated temperature monitor constraint (set_max_delay to temp_mon_enabled.u_tempmon/device_temp_sync_r1_reg[*]/D) uses a hierarchical pin query; it is vendor IP constraint text}
           {match}}

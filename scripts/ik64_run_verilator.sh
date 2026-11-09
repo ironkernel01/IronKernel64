@@ -2,8 +2,9 @@
 # ik64_run_verilator.sh -- builds and runs tb_sid_player under Verilator 5 (MSYS2 UCRT64).
 # Usage (from any shell): scripts/ik64_run_verilator.sh      prints the bench's TEST PASS/FAIL line.
 # Output: build/verilator/tb_sid_player. -fno-declone-ctor-dtor: see .claude/CLAUDE.md.
-# Revision: 11-09-2026 first version
+# Revision: 11-09-2026 first version; setup guard (setup_third_party.py --check)
 R="$(cd "$(dirname "$0")/.." && pwd)"
+python -I "$R/tools/setup_third_party.py" --check || { echo "ik64_run_verilator: third-party setup check failed; run: python -I tools/setup_third_party.py"; exit 2; }
 MSYSTEM=UCRT64 /c/msys64/usr/bin/bash -lc "cd '$R' && verilator --binary --timing -j 4 -Wno-fatal -Wno-lint -Wno-style \
   -CFLAGS -fno-declone-ctor-dtor --top-module tb_sid_player --Mdir build/verilator/tb_sid_player \
   +incdir+third_party/redip-sid/ik64 +incdir+third_party/rtlnet/cores/rtlnet_common/hdl \

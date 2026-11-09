@@ -23,6 +23,7 @@
 /* Common */
 #define C64_REG_ADDR_W                 (16u)
 #define C64_CPU_CLK_HZ                 (100000000u)
+#define C64_SID_CLK_HZ                 (50000000u)
 #define C64_WIN_SYS_OFS                (0x00000000u)
 #define C64_WIN_AUD_OFS                (0x00010000u)
 #define C64_WIN_VID_OFS                (0x00020000u)

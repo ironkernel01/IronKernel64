@@ -14,9 +14,10 @@
 //     rtlnet_ddr) and register-window decoder (rtlnet_axil_decoder).
 //   * Clocks:
 //       u_mmcm_sys (RTLNet's MMCM, unchanged): 100 MHz in, VCO 1000 MHz;
-//         CLKOUT2 clk200 (MIG IDELAY reference), CLKOUT5 cpu_clk 100 MHz,
-//         CLKOUT6 ddr_sys_clk 100 MHz (MIG PLL input). CLKOUT0/1/3/4
-//         (clk125, clk125_90, axis_clk, proto_clk) are the Phase 4 network
+//         CLKOUT2 clk200 (MIG IDELAY reference), CLKOUT4 sid_clk 50 MHz
+//         (sid_player; also usable later by the network cores), CLKOUT5
+//         cpu_clk 100 MHz, CLKOUT6 ddr_sys_clk 100 MHz (MIG PLL input).
+//         CLKOUT0/1/3 (clk125, clk125_90, axis_clk) are the Phase 4 network
 //         clocks; they have no BUFG until the network cores are added.
 //       u_mmcm_pix: cpu_clk in, DIVCLK 5, MULT 37.125, VCO 742.5 MHz;
 //         CLKOUT0 /10 = pix_clk 74.25 MHz (CEA-861 720p60, exact),
@@ -25,13 +26,14 @@
 //         CLKOUT0 /78.125 = aud_clk 12.288 MHz = 256 x 48 kHz (exact).
 //       ui_clk: MIG user clock, 100 MHz.
 //   * Resets: rst_arstn = cpu_resetn & system MMCM locked; one
-//     rtlnet_reset_sync per domain. The pixel and audio domains also wait for
+//     rtlnet_reset_sync per domain (cpu, pixel, audio, sid, ui). The pixel and audio domains also wait for
 //     their own MMCM; the ui_clk reset is RTLNet's (chain AND MIG ui reset).
 //   * Register windows:
 //       core 0 M_AXI_C64 (0x4400_0000, 512 KiB) -> u_dec0: SYS (c64_sysregs
 //         core 0), AUD (sid_audio_out), VID (c64_video), PS2 (ps2_rx), SID
-//         (sid_player), 64 KiB each at c64_pkg WIN_*_OFS; the sample stream
-//         u_sid.strm_* feeds u_audio (CTRL.SRC = 1).
+//         (sid_player on sid_clk behind u_sid_cdc), 64 KiB each at c64_pkg
+//         WIN_*_OFS; the sample stream u_sid.strm_* crosses to cpu_clk in
+//         u_sid_strm and feeds u_audio (CTRL.SRC = 1).
 //       core 1 M_AXI_DRV (0x44A0_0000, 1 MiB) -> u_dec1, RTLNet layout:
 //         SYS (c64_sysregs core 1), ARB (rtlnet_axi_arbiter registers), and
 //         stubs (OKAY, read 0) for MAC, MDIO and PROTOCOL until Phase 4.
@@ -47,6 +49,9 @@
 //   * 11-09-2026: initial version.
 //   * 11-09-2026: window 0 grows to 512 KiB; sid_player (u_sid, slot SID) and
 //     its stream into sid_audio_out; CPU_CLK_HZ from c64_pkg.
+//   * 11-09-2026: sid_player on the 50 MHz sid_clk (system MMCM CLKOUT4, u_rst_sid),
+//     rtlnet_axil_cdc (u_sid_cdc) for its register slot and sid_strm_cdc for the sample
+//     stream; arbiter NARROW_MASK and WRAP_MASK 1 (RTLNet f8435ad).
 // Clocks: sysclk (100 MHz pin) -> u_mmcm_sys; cpu_clk, clk200, ddr_sys_clk,
 //   pix_clk, pix_clk_x5, aud_clk, ui_clk as above.
 // Pins: names, balls, banks and I/O standards from the Digilent
@@ -219,6 +224,9 @@ module c64_top
   logic cpu_resetn_sync;
   logic pix_resetn;
   logic aud_resetn;
+  logic sid_clk_mmcm;
+  logic sid_clk;               // 50 MHz: sid_player (reDIP-SID core), system MMCM CLKOUT4
+  logic sid_resetn;
   logic ui_clk;                // 100 MHz: MIG user clock, DDR3 AXI4 side, arbiter datapath
   logic ui_resetn_mig;         // MIG ui reset, active low, synchronous to ui_clk
   logic ddr_resetn_sync;       // ui_clk reset chain of rst_arstn
@@ -424,8 +432,16 @@ module c64_top
   logic                    aud_irq;
   logic                    vid_irq;
   logic                    ps2_irq;
-  logic                    sid_strm_valid;   // sid_player -> sid_audio_out, cpu_clk, 48 kHz
+  logic                    sid_strm_valid;   // sid_player output, sid_clk, 48 kHz
   logic signed [15:0]      sid_strm_sample;
+  logic                    cpu_strm_valid;   // sid_strm_cdc output -> sid_audio_out, cpu_clk
+  logic signed [15:0]      cpu_strm_sample;
+  logic [REG_ADDR_W-1:0]   sx_awaddr, sx_araddr;   // u_sid_cdc master side (sid_clk)
+  logic [31:0]             sx_wdata, sx_rdata;
+  logic [3:0]              sx_wstrb;
+  logic [1:0]              sx_bresp, sx_rresp;
+  logic                    sx_awvalid, sx_awready, sx_wvalid, sx_wready, sx_bvalid, sx_bready;
+  logic                    sx_arvalid, sx_arready, sx_rvalid, sx_rready;
   logic [CLK_STATUS_W-1:0] clk_status_async;
   logic [CLK_STATUS_W-1:0] clk_status;        // cpu_clk, synchronized
   logic [7:0]              led0;              // core 0 SYS_LED
@@ -439,7 +455,8 @@ module c64_top
   // ---------------------------------------------------------------------------
   // System MMCM: RTLNet's configuration, VCO = 100 MHz x 10 = 1000 MHz.
   // CLKOUT2 /5 = 200 MHz, CLKOUT5 /10 = 100 MHz, CLKOUT6 /10 = 100 MHz; CLKOUT0
-  // /8, CLKOUT1 /8 at 90 deg, CLKOUT3 /16 and CLKOUT4 /20 are kept for the
+  // CLKOUT4 /20 = 50 MHz sid_clk (sid_player; also usable later by the network
+  // cores); CLKOUT0 /8, CLKOUT1 /8 at 90 deg and CLKOUT3 /16 are kept for the
   // Phase 4 network clocks and left unconnected (no BUFG). RST tied low: the
   // oscillator runs before configuration ends, and the button resets logic,
   // not the MMCM.
@@ -500,7 +517,7 @@ module c64_top
     .CLKOUT2B     (),
     .CLKOUT3      (),
     .CLKOUT3B     (),
-    .CLKOUT4      (),
+    .CLKOUT4      (sid_clk_mmcm),
     .CLKOUT5      (cpu_clk_mmcm),
     .CLKOUT6      (ddr_sys_clk_mmcm),
     .LOCKED       (mmcm_locked),
@@ -656,6 +673,9 @@ module c64_top
   BUFG u_bufg_aud_fb (.I(aud_clkfb),    .O(aud_clkfb_bufg));
   BUFG u_bufg_aud    (.I(aud_clk_mmcm), .O(aud_clk));
 
+  // 50 MHz SID clock from the system MMCM (CLKOUT4); also usable later by the network cores.
+  BUFG u_bufg_sid    (.I(sid_clk_mmcm), .O(sid_clk));
+
   // The one reset assertion: button pressed or system MMCM not locked. The
   // pixel and audio domains additionally wait for their own MMCM.
   assign rst_arstn = cpu_resetn & mmcm_locked;
@@ -665,6 +685,7 @@ module c64_top
   rtlnet_reset_sync u_rst_cpu (.clk(cpu_clk), .arstn(rst_arstn), .resetn(cpu_resetn_sync));
   rtlnet_reset_sync u_rst_pix (.clk(pix_clk), .arstn(pix_arstn), .resetn(pix_resetn));
   rtlnet_reset_sync u_rst_aud (.clk(aud_clk), .arstn(aud_arstn), .resetn(aud_resetn));
+  rtlnet_reset_sync u_rst_sid (.clk(sid_clk), .arstn(rst_arstn), .resetn(sid_resetn));
 
   // Reset release into ui_clk (RTLNet): the board reset assertion enters the
   // chain; the MIG ui reset (a ui_clk flop output) is ANDed into the released,
@@ -900,8 +921,8 @@ module c64_top
     .s_axi_rresp   (d0_rresp[S0_AUD*2 +: 2]),
     .s_axi_rvalid  (d0_rvalid[S0_AUD]),
     .s_axi_rready  (d0_rready[S0_AUD]),
-    .strm_valid    (sid_strm_valid),
-    .strm_sample   (sid_strm_sample),
+    .strm_valid    (cpu_strm_valid),
+    .strm_sample   (cpu_strm_sample),
     .irq           (aud_irq),
     .aud_clk       (aud_clk),
     .aud_resetn    (aud_resetn),
@@ -910,30 +931,88 @@ module c64_top
     .aud_sdata_q   (aud_sdata_q)
   );
 
-  // SID sound (window SID): reDIP-SID core, register replay, 48 kHz sample stream into u_audio.
-  sid_player u_sid (
-    .cpu_clk       (cpu_clk),
-    .cpu_resetn    (cpu_resetn_sync),
-    .s_axi_awaddr (d0_awaddr[S0_SID*AW +: REG_ADDR_W]),
+  // SID sound (window SID): reDIP-SID core and register replay on the 50 MHz sid_clk, 48 kHz
+  // sample stream into u_audio. Two crossings: the register slot through rtlnet_axil_cdc
+  // (cpu_clk -> sid_clk) and the sample stream through sid_strm_cdc (sid_clk -> cpu_clk).
+  rtlnet_axil_cdc #(
+    .ADDR_W (REG_ADDR_W)
+  ) u_sid_cdc (
+    .s_clk         (cpu_clk),
+    .s_resetn      (cpu_resetn_sync),
+    .s_axi_awaddr  (d0_awaddr[S0_SID*AW +: REG_ADDR_W]),
     .s_axi_awvalid (d0_awvalid[S0_SID]),
     .s_axi_awready (d0_awready[S0_SID]),
-    .s_axi_wdata  (d0_wdata[S0_SID*32 +: 32]),
-    .s_axi_wstrb  (d0_wstrb[S0_SID*4 +: 4]),
-    .s_axi_wvalid (d0_wvalid[S0_SID]),
-    .s_axi_wready (d0_wready[S0_SID]),
-    .s_axi_bresp  (d0_bresp[S0_SID*2 +: 2]),
-    .s_axi_bvalid (d0_bvalid[S0_SID]),
-    .s_axi_bready (d0_bready[S0_SID]),
-    .s_axi_araddr (d0_araddr[S0_SID*AW +: REG_ADDR_W]),
+    .s_axi_wdata   (d0_wdata[S0_SID*32 +: 32]),
+    .s_axi_wstrb   (d0_wstrb[S0_SID*4 +: 4]),
+    .s_axi_wvalid  (d0_wvalid[S0_SID]),
+    .s_axi_wready  (d0_wready[S0_SID]),
+    .s_axi_bresp   (d0_bresp[S0_SID*2 +: 2]),
+    .s_axi_bvalid  (d0_bvalid[S0_SID]),
+    .s_axi_bready  (d0_bready[S0_SID]),
+    .s_axi_araddr  (d0_araddr[S0_SID*AW +: REG_ADDR_W]),
     .s_axi_arvalid (d0_arvalid[S0_SID]),
     .s_axi_arready (d0_arready[S0_SID]),
-    .s_axi_rdata  (d0_rdata[S0_SID*32 +: 32]),
-    .s_axi_rresp  (d0_rresp[S0_SID*2 +: 2]),
-    .s_axi_rvalid (d0_rvalid[S0_SID]),
-    .s_axi_rready (d0_rready[S0_SID]),
+    .s_axi_rdata   (d0_rdata[S0_SID*32 +: 32]),
+    .s_axi_rresp   (d0_rresp[S0_SID*2 +: 2]),
+    .s_axi_rvalid  (d0_rvalid[S0_SID]),
+    .s_axi_rready  (d0_rready[S0_SID]),
+    .m_clk         (sid_clk),
+    .m_resetn      (sid_resetn),
+    .m_axi_awaddr  (sx_awaddr),
+    .m_axi_awvalid (sx_awvalid),
+    .m_axi_awready (sx_awready),
+    .m_axi_wdata   (sx_wdata),
+    .m_axi_wstrb   (sx_wstrb),
+    .m_axi_wvalid  (sx_wvalid),
+    .m_axi_wready  (sx_wready),
+    .m_axi_bresp   (sx_bresp),
+    .m_axi_bvalid  (sx_bvalid),
+    .m_axi_bready  (sx_bready),
+    .m_axi_araddr  (sx_araddr),
+    .m_axi_arvalid (sx_arvalid),
+    .m_axi_arready (sx_arready),
+    .m_axi_rdata   (sx_rdata),
+    .m_axi_rresp   (sx_rresp),
+    .m_axi_rvalid  (sx_rvalid),
+    .m_axi_rready  (sx_rready)
+  );
+
+  sid_player #(
+    .CLK_HZ (SID_CLK_HZ)
+  ) u_sid (
+    .cpu_clk       (sid_clk),
+    .cpu_resetn    (sid_resetn),
+    .s_axi_awaddr  (sx_awaddr),
+    .s_axi_awvalid (sx_awvalid),
+    .s_axi_awready (sx_awready),
+    .s_axi_wdata   (sx_wdata),
+    .s_axi_wstrb   (sx_wstrb),
+    .s_axi_wvalid  (sx_wvalid),
+    .s_axi_wready  (sx_wready),
+    .s_axi_bresp   (sx_bresp),
+    .s_axi_bvalid  (sx_bvalid),
+    .s_axi_bready  (sx_bready),
+    .s_axi_araddr  (sx_araddr),
+    .s_axi_arvalid (sx_arvalid),
+    .s_axi_arready (sx_arready),
+    .s_axi_rdata   (sx_rdata),
+    .s_axi_rresp   (sx_rresp),
+    .s_axi_rvalid  (sx_rvalid),
+    .s_axi_rready  (sx_rready),
     .strm_valid    (sid_strm_valid),
     .strm_sample   (sid_strm_sample)
   );
+
+  sid_strm_cdc u_sid_strm (
+    .sid_clk    (sid_clk),
+    .sid_resetn (sid_resetn),
+    .in_valid   (sid_strm_valid),
+    .in_sample  (sid_strm_sample),
+    .cpu_clk    (cpu_clk),
+    .out_valid  (cpu_strm_valid),
+    .out_sample (cpu_strm_sample)
+  );
+
 
   // Video (window VID) with framebuffer port A from the BD.
   c64_video u_video (
@@ -1225,6 +1304,7 @@ module c64_top
     .ID_W            (ARB_ID_W),
     .HIGH_PRIO_MASK  (1'b1),
     .NARROW_MASK     (1'b1),   // the write-through data caches issue 32-bit stores
+    .WRAP_MASK       (1'b1),   // the instruction/data caches issue WRAP line fills
     .MAX_OUTSTANDING (8)
   ) u_arb (
     .clk           (ui_clk),
