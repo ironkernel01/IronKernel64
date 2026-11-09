@@ -39,7 +39,10 @@ switch ($Command) {
         # Refuse up front so the final line is still printed (Enter-RtlnetBoardLock exits the script).
         $l = Get-RtlnetBoardLock
         if ($null -ne $l -and $l.State -eq 'fresh' -and $l.session -ne 'ik64') {
-            Enter-RtlnetBoardLock -Purpose $Purpose -ExpectedMinutes $ExpectedMinutes  # prints the FAIL line, exits 3
+            Write-Output ("RTLNET_BOARD_LOCK: FAIL board is held by session '{0}' (purpose '{1}', start {2}, pid {3}); not waiting, not taking over" -f
+                $l.session, $l.purpose, $l.start, $l.pid)
+            Write-Ik64Final 'FAIL' ("board is held by session '{0}'" -f $l.session)
+            exit 3
         }
         Enter-RtlnetBoardLock -Purpose $Purpose -ExpectedMinutes $ExpectedMinutes
         Write-Ik64Final 'PASS' "lock taken by ik64 ($Purpose, $ExpectedMinutes min)"
