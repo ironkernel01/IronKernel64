@@ -141,7 +141,7 @@ static uint8_t  g_colour;
 static int      g_rvs;
 static int      g_quote;
 static uint32_t g_insert;
-static int      g_edited;    /* cursor/insert/delete key used on the line since RETURN */
+static int      g_edited;    /* cursor/insert/delete key used on the line since RETURN/CLR */
 static uint32_t g_load_len;
 static uint8_t  g_line[BASIC_LINE_MAX + 1u];
 static uint8_t  g_dir_chunk[BASIC_DIR_CHUNK];
@@ -506,7 +506,8 @@ static void mirror(uint8_t c)
  *      '"' toggles quote mode.
  *   4. Each character that acts is also copied to the UART by mirror(); control codes shown
  *      reversed (quote / insert mode) and characters without a screen code are not.
- *      A cursor / home / clear / insert / delete key sets g_edited.
+ *      A cursor / home / insert / delete key sets g_edited; CLR clears it (the next line
+ *      starts on a clear screen, so its UART echo is the line as typed).
  * Returns: nothing.
  */
 static void emit(uint8_t c)
@@ -530,9 +531,11 @@ static void emit(uint8_t c)
             return;
         }
         if (c == KEYBOARD_KEY_DOWN || c == KEYBOARD_KEY_UP || c == KEYBOARD_KEY_RIGHT ||
-            c == KEYBOARD_KEY_LEFT || c == KEYBOARD_KEY_HOME || c == KEYBOARD_KEY_CLR ||
+            c == KEYBOARD_KEY_LEFT || c == KEYBOARD_KEY_HOME ||
             c == KEYBOARD_KEY_DEL || c == KEYBOARD_KEY_INST) {
             g_edited = 1;
+        } else if (c == KEYBOARD_KEY_CLR) {
+            g_edited = 0;
         }
         mirror(c);
         switch (c) {

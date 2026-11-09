@@ -20,6 +20,8 @@
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version (sysregs, audio, video, PS/2 maps; video and
 //     audio geometry).
+//   * 11-09-2026: SID player map, CPU_CLK_HZ / SID_CLK_HZ, AUD_CTRL_SRC_BIT,
+//     WIN_SID_OFS and the 512 KiB window 0.
 // Clocks: none (package).
 // -----------------------------------------------------------------------------
 package c64_pkg;
@@ -28,7 +30,7 @@ package c64_pkg;
   // Common
   // ---------------------------------------------------------------------------
   localparam int REG_ADDR_W = 16;                      // 64 KiB AXI4-Lite window per block
-  localparam int CPU_CLK_HZ = 100_000_000;             // cpu_clk, the one fabric clock domain of core 0
+  localparam int CPU_CLK_HZ = 100_000_000;             // cpu_clk: core 0 AXI and register blocks
   localparam int SID_CLK_HZ = 50_000_000;              // sid_clk: sid_player, the reDIP-SID core (needs >= 20 clocks per phi2)
 
   // Core 0 fabric window: the BD exports one AXI4-Lite master (M_AXI_C64,

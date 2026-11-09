@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later OR CERN-OHL-S-2.0
+// Copyright (C) 2026 IronKernel
 // -----------------------------------------------------------------------------
 // File: tb_sid_player.sv
 // Purpose: self-checking bench for sid_player with the real reDIP-SID core:

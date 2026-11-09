@@ -23,6 +23,7 @@
 #
 # Revision:
 #   11-09-2026  first version
+#   11-09-2026  D3 count checked once (in edit())
 
 import re
 import sys
@@ -89,9 +90,6 @@ def patch(name, data):
     if name == "sid_filter.sv":
         data = edit(name, data, D2_OLD, D2_NEW, 1, "D2")
         devs.append("D2")
-    n3 = data.count(D3_OLD)
-    if n3 != 1:
-        raise PatchError("%s D3: expected 1 default_nettype none, found %d" % (name, n3))
     data = edit(name, data, D3_OLD, D3_NEW, 1, "D3")
     devs.append("D3")
     return header(name, devs) + data, devs

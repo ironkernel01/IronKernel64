@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later OR CERN-OHL-S-2.0
 // Copyright (C) 2026 IronKernel
 // -----------------------------------------------------------------------------
 // File: sid_strm_cdc.sv
@@ -22,16 +22,20 @@
 // Language: SystemVerilog-2012.
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version.
+//   * 11-09-2026: dual SPDX expression (c64demo.md Licensing); port group comments.
 // Clocks: sid_clk (50 MHz, write), cpu_clk (100 MHz, read); asynchronous pair.
 // -----------------------------------------------------------------------------
 module sid_strm_cdc #(
   parameter int XPM_SIM_ASSERT = 0          // 1: enable xpm_fifo_async usage assertions (simulation)
 )(
+  // Write side, sid_clk domain (sid_player output), reset active low and
+  // synchronous to sid_clk; it also resets the read side inside the macro.
   input  logic                 sid_clk,
   input  logic                 sid_resetn,   // synchronous to sid_clk, active low
   input  logic                 in_valid,     // sid_clk, one clock per sample
   input  logic signed [15:0]   in_sample,
 
+  // Read side, cpu_clk domain (to sid_audio_out); no reset port of its own.
   input  logic                 cpu_clk,
   output logic                 out_valid,    // cpu_clk, one clock per sample
   output logic signed [15:0]   out_sample

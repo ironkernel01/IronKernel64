@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later OR CERN-OHL-S-2.0
+// Copyright (C) 2026 IronKernel
 // -----------------------------------------------------------------------------
 // File: sid_player.sv
 // Purpose: SID sound for core 0. Firmware pushes timestamped SID register
@@ -44,7 +46,7 @@
 //     Why this matches a 6510: sid_control (upstream) samples a write on
 //     ~phi2 & ~r_w_n during its voice cycles 1..6, which start the clock after
 //     the falling edge and last 6 clocks (the pipeline is idle for the rest of
-//     the 50-clock low phase), taking addr/data/cs from bus_i in those
+//     the 25- or 26-clock low phase), taking addr/data/cs from bus_i in those
 //     clocks; a read is combinational on phi2 & r_w_n, data_o valid while phi2
 //     is high. Holding addr, data, r_w_n and cs_n for the whole cycle covers
 //     both (the real 6510 holds write data through the falling edge). OSC3 and
@@ -52,17 +54,21 @@
 //     so data_o is stable; it is captured on the clock of the falling edge.
 //   * Audio: audio_o.left (s24) is taken once per phi2 cycle into two cascaded
 //     moving sums of SID_DECIM_TAPS (gain 20 * 20 = 400, delay lines are
-//     shift registers). On each exact 48 kHz tick (acc += 48,000 against
-//     CLK_HZ, so it matches sid_audio_out's drain rate exactly) the second
-//     sum is scaled by 1/400 and by 1/256 (s24 to s16, the core's 24-bit word
-//     carries the 16-bit sample in its top bits), saturated to s16 and sent as
-//     strm_valid (1 clock) with strm_sample.
+//     shift registers). Each sum and its delay line have no reset and are
+//     never cleared (not by cpu_resetn, not by CTRL.RESET): a sum cleared
+//     beside a filled delay line would keep a permanent DC offset. On each
+//     exact 48 kHz tick (acc += 48,000 against CLK_HZ, so it matches
+//     sid_audio_out's drain rate exactly) the second sum is scaled by 1/400
+//     and by 1/256 (s24 to s16, the core's 24-bit word carries the 16-bit
+//     sample in its top bits), saturated to s16 and sent as strm_valid
+//     (1 clock) with strm_sample.
 //   * No interrupt. The SID core has no reset: it relies on initial values and
 //     the replay holds res through CTRL.RESET only; cpu_resetn resets this
 //     block's own logic.
 // Language: SystemVerilog-2012.
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version; CLK_HZ parameter (runs on the 50 MHz sid_clk).
+//   * 11-09-2026: moving sums share their delay lines' power-up-only init (no reset).
 // Clocks: the port cpu_clk (CLK_HZ, 50 MHz sid_clk in c64_top) only; cpu_resetn is synchronous to it.
 // -----------------------------------------------------------------------------
 module sid_player #(
@@ -186,9 +192,9 @@ module sid_player #(
   logic                   cic2_en;           // stage 2 update, one clock later
   logic signed [23:0]     cic_in;
   logic [SID_DECIM_TAPS-1:0][23:0]   dl1 = '0;   // delay lines: no reset, zero at power-up
-  logic signed [N1_W-1:0] sum1;
+  logic signed [N1_W-1:0] sum1 = '0;         // == sum of dl1 at all times
   logic [SID_DECIM_TAPS-1:0][N1_W-1:0] dl2 = '0;
-  logic signed [N2_W-1:0] sum2;
+  logic signed [N2_W-1:0] sum2 = '0;         // == sum of dl2 at all times
   logic signed [N2_W-9:0] scale_in;          // sum2 >>> 8
   logic signed [N2_W+1:0] scale_out;
   logic [2:0]             strm_pipe;         // aud_tick through scale_in, scale_out, strm_sample
@@ -358,14 +364,21 @@ module sid_player #(
   // ---------------------------------------------------------------------------
   // Audio: two moving sums per phi2 cycle, exact 48 kHz tick, scale, saturate.
   // The two stage updates run on consecutive clocks (no chained adders).
-  // Delay lines have no reset: SRL-style shift registers, zero at power-up.
+  // Delay lines and sums have no reset: SRL-style shift registers, zero at
+  // power-up, each sum updated with its delay line so it stays their total.
   // ---------------------------------------------------------------------------
   assign aud_sum  = aud_acc + AUD_STEP;
   assign aud_tick = ctrl_run && (aud_sum >= CLK_N);
 
   always_ff @(posedge cpu_clk) begin
-    if (cic1_en) dl1 <= {dl1[SID_DECIM_TAPS-2:0], cic_in};
-    if (cic2_en) dl2 <= {dl2[SID_DECIM_TAPS-2:0], sum1};
+    if (cic1_en) begin
+      dl1  <= {dl1[SID_DECIM_TAPS-2:0], cic_in};
+      sum1 <= sum1 + N1_W'(cic_in) - N1_W'($signed(dl1[SID_DECIM_TAPS-1]));
+    end
+    if (cic2_en) begin
+      dl2  <= {dl2[SID_DECIM_TAPS-2:0], sum1};
+      sum2 <= sum2 + N2_W'(sum1) - N2_W'($signed(dl2[SID_DECIM_TAPS-1]));
+    end
   end
 
   always_ff @(posedge cpu_clk) begin
@@ -374,22 +387,12 @@ module sid_player #(
       cic1_en     <= 1'b0;
       cic2_en     <= 1'b0;
       cic_in      <= '0;
-      sum1        <= '0;
-      sum2        <= '0;
       scale_in    <= '0;
       scale_out   <= '0;
       strm_pipe   <= '0;
       strm_valid  <= 1'b0;
       strm_sample <= '0;
     end else begin
-      if (ctrl_reset) begin
-        sum1 <= '0;
-        sum2 <= '0;
-      end else begin
-        if (cic1_en) sum1 <= sum1 + N1_W'(cic_in) - N1_W'($signed(dl1[SID_DECIM_TAPS-1]));
-        if (cic2_en) sum2 <= sum2 + N2_W'(sum1) - N2_W'($signed(dl2[SID_DECIM_TAPS-1]));
-      end
-
       cic1_en <= phi2_rise;
       cic2_en <= cic1_en;
       if (phi2_rise) cic_in <= sid_audio.left;

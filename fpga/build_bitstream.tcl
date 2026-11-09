@@ -61,10 +61,10 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File third_party/rtlnet/scripts/rtlnet_vivado.ps1 `
 #     -Tcl <repo>/fpga/build_bitstream.tcl -Log <repo>/build/fpga/build.log
 # Revision: 11-09-2026
-#   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
-#     u_sid_strm/u_fifo joins the async-reset exceptions.
 #   * 11-09-2026: initial version.
 #   * 11-09-2026: SID sources and tables via fpga/c64_top.f (+incdir); no gate changed.
+#   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
+#     u_sid_strm/u_fifo joins the async-reset exceptions.
 # -----------------------------------------------------------------------------
 
 # Script-relative roots.
