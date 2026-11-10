@@ -70,6 +70,7 @@
 # Revision: 11-10-2026
 #   * 11-09-2026: initial version.
 #   * 11-10-2026: core 1 AXI Quad SPI (axi_quad_spi_0, 0x4480_0000, axi_periph_1 M07, exported interface QSPI) for the QSPI boot.
+#   * 11-10-2026: C_SPI_MEMORY 3 (Spansion; the board flash is an S25FL256S, JEDEC ID 01 02 19 4D 01), was 2 (Micron).
 # Clocks: clk (cpu_clk 100 MHz) for every cell.
 # -----------------------------------------------------------------------------
 
@@ -456,12 +457,12 @@ proc c64_bd_create {bd_dir} {
   connect_bd_intf_net [get_bd_intf_pins axi_mem/M00_AXI] [get_bd_intf_pins axi_bram_ctrl_0/S_AXI]
 
   # QSPI flash controller (core 1 only; core 1 boots from it, fw_1541/boot). Quad mode, AXI4-Lite,
-  # no XIP, FIFOs of 16 (distributed RAM, no block RAM). The IP holds the STARTUPE2 (C_USE_STARTUP_INT)
+  # Spansion command look-up ROM, no XIP, FIFOs of 16 (distributed RAM, no block RAM). The IP holds the STARTUPE2 (C_USE_STARTUP_INT)
   # that carries SCK to the dedicated CCLK pin after configuration: a vendor-IP-internal primitive, the
   # documented exception to "I/O primitives in c64_top" (like the MIG). SCK is ext_spi_clk / 2 = 50 MHz
   # (the ratio is fixed to 2 with the startup block). The data and chip-select pins are IOBUFs in c64_top.
   set qspi [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_quad_spi:3.2 axi_quad_spi_0]
-  set_property -dict [list     CONFIG.C_SPI_MODE              2     CONFIG.C_SPI_MEMORY            2     CONFIG.C_TYPE_OF_AXI4_INTERFACE 0     CONFIG.C_USE_STARTUP           1     CONFIG.C_USE_STARTUP_INT       1     CONFIG.C_XIP_MODE              0] $qspi
+  set_property -dict [list     CONFIG.C_SPI_MODE              2     CONFIG.C_SPI_MEMORY            3     CONFIG.C_TYPE_OF_AXI4_INTERFACE 0     CONFIG.C_USE_STARTUP           1     CONFIG.C_USE_STARTUP_INT       1     CONFIG.C_XIP_MODE              0] $qspi
   connect_bd_net [get_bd_ports clk] [get_bd_pins axi_quad_spi_0/s_axi_aclk]
   connect_bd_net [get_bd_ports clk] [get_bd_pins axi_quad_spi_0/ext_spi_clk]
   connect_bd_net [get_bd_pins $rst1] [get_bd_pins axi_quad_spi_0/s_axi_aresetn]

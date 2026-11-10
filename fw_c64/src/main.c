@@ -63,6 +63,7 @@ static XTmrCtr g_tmr;
 static volatile uint32_t g_ms;
 static ddr_probe_result_t g_ddr;
 static uint8_t g_load_buf[LOAD_BUF_BYTES];
+#define BOOT_DRIVE_WAIT_PINGS (12u)                /* x DRIVE_CLIENT_PING_TIMEOUT_MS = 3 s */
 #define LOG1_DRAIN_MAX       (64u)                /* core 1 log bytes printed per main-loop pass */
 #define LOG1_PREFIX          "[1541] "
 static int g_log1_at_line_start = 1;   /* next core 1 log byte starts a line */
@@ -234,6 +235,14 @@ int main(void)
     cfg.load_buf_bytes = LOAD_BUF_BYTES;
     cfg.uart_out = outbyte;
     drive_client_init();
+    /* Core 1 loads its firmware from the QSPI flash after configuration and may still be starting:
+     * wait for its drive server (any answer, a DOS status included), at most BOOT_DRIVE_WAIT_PINGS
+     * PING timeouts (3 s; core 1 idle under the JTAG flow costs that once). */
+    for (uint32_t w = 0u; w < BOOT_DRIVE_WAIT_PINGS; w++) {
+        if (drive_client_ping_device(DRIVE_DEVICE_BANK) != DRIVE_CLIENT_TIMEOUT) {
+            break;
+        }
+    }
     xil_printf("drive (device 8): %s, tune bank (device 9): %s\r\n",
                (drive_client_ping_device(DRIVE_DEVICE_SMB) == DRIVE_CLIENT_OK) ? "present" : "not answering",
                (drive_client_ping_device(DRIVE_DEVICE_BANK) == DRIVE_CLIENT_OK) ? "present" : "not answering");
