@@ -90,12 +90,11 @@ A key typed on the keyboard or the UART reaches core 0. `LOAD` becomes a request
 | Evidence | Result |
 |---|---|
 | RTL regression (reset-policy scan, 16 benches each with a forced-failure control) | 33 passed, 0 failed |
-| Timing of the release build | WNS 0.083 ns, WHS 0.012 ns, 0 failing endpoints |
-| Host tests: drive bank, CBM DOS, CLI menu, piano, OLED, PSID CIA, envelope model, screen overlay | all PASS, `scripts/ik64_host_tests.sh` 12 of 12 (bank 61, CBM DOS 67, CLI menu 194, song switch 30 checks) |
+| Timing of the release build, 0 failing endpoints | WNS 0.083 ns, WHS 0.012 ns |
+| Host tests: drive bank, CBM DOS, CLI, piano, OLED, PSID, SID, screen (`ik64_host_tests.sh`) | 12 of 12 PASS |
 | Public bank: 9 tunes through the real PSID loader, 6502 and memory map | all PASS; worst play call 3,266 of 20,000 cycles |
 | Board: boot, DDR3, codec, Gigabit link, SMB 3.1.1, `LOAD` and `RUN` from the share | demonstrated 11-09-2026 over the UART |
-| Board: stand-alone boot from QSPI flash, public bank, share, `VERSION` with HDMI hot plug | demonstrated 11-10-2026 with the release image |
-| Board: public release image (no share), device 9 list and playback | demonstrated 11-10-2026 |
+| Board: boot from QSPI flash, owner and public release images, device 9 bank, share, `VERSION` | demonstrated 11-10-2026 |
 | Board: listening check against sidplayfp, 30-minute soak | to verify |
 
 ## Offerings
@@ -104,7 +103,7 @@ A key typed on the keyboard or the UART reaches core 0. `LOAD` becomes a request
 |---|---|
 | Source | firmware, tools and scripts under GPL-3.0-or-later; gateware under GPL-3.0-or-later or CERN-OHL-S-2.0 |
 | Network core | closed netlist and library, with an interface document; licence exception for use with IronKernel 64 (README) |
-| Images | `ik64_qspi.mcs` (one flash image, JP4 on "SPI Flash") and `c64_qspi.bit` (JTAG), with SHA-256 sums; no network share configured |
+| Images | flash image `ik64_qspi.mcs` and bitstream `c64_qspi.bit` with SHA-256 sums; no share configured |
 | Services | by agreement with the owner |
 
 ### Hardware needed
