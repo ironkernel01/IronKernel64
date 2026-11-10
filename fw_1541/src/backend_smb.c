@@ -17,8 +17,7 @@
 #include "drive_log.h"     /* drive_log_printf */
 #include "drive_proto.h"   /* DRIVE_DATA_BYTES */
 
-#include "FreeRTOS.h"      /* pdMS_TO_TICKS */
-#include "task.h"          /* vTaskDelay */
+#include "ik64_net.h"     /* ik64_net_delay_ms */
 
 #include <stdint.h>            /* fixed-width types libsmb2's headers use */
 #include <time.h>              /* time_t: libsmb2's headers do not include it */
@@ -236,7 +235,7 @@ backend_status_t backend_smb_init(void)
  *   1. Already mounted: BACKEND_OK.
  *   2. Up to BACKEND_SMB_MOUNT_TRIES attempts: new context (NULL = pool
  *      reject: IO), configure, smb2_connect_share.
- *   3. Success: log server, share, user and the negotiated dialect.
+ *   3. Success: log server, share and the negotiated dialect (never the user name or password).
  *   4. Failure: classify; AUTH ends the loop (retrying cannot fix a
  *      password), otherwise destroy the context, wait
  *      BACKEND_SMB_RETRY_DELAY_MS and retry.
@@ -262,8 +261,8 @@ backend_status_t backend_smb_mount(void)
         rc = smb2_connect_share(g_smb2, NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_USER);
         if (rc == 0) {
             set_status("smb", "OK");
-            drive_log_printf("SMB: connected \\\\%s\\%s as %s, dialect 0x%04x\r\n",
-                             NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_USER,
+            drive_log_printf("SMB: connected \\\\%s\\%s, dialect 0x%04x\r\n",
+                             NETSHARE_SERVER, NETSHARE_SHARE,
                              (unsigned)smb2_get_dialect(g_smb2));
             return BACKEND_OK;
         }
@@ -274,7 +273,7 @@ backend_status_t backend_smb_mount(void)
         }
         st = BACKEND_ERR_NOT_READY;
         if ((attempt + 1u) < BACKEND_SMB_MOUNT_TRIES) {
-            vTaskDelay(pdMS_TO_TICKS(BACKEND_SMB_RETRY_DELAY_MS));
+            ik64_net_delay_ms(BACKEND_SMB_RETRY_DELAY_MS);   /* IK64_DEVIATION 11: no RTOS delay */
         }
     }
     return st;

@@ -25,8 +25,7 @@
  *     source instead of corrupting state, and the counters make it loud.
  *   - free() or realloc() of a pointer that is not a block start, or of a
  *     block that is already free, is memory corruption: fail-stop.
- *   - Thread safety: the scheduler is suspended around pool updates, so any
- *     task may call it; never from an ISR.
+ *   - Single-threaded: core 1 has no RTOS; never call it from an ISR.
  *
  * Headers hold contracts; per-function commentary lives in smb_alloc.c.
  */

@@ -12,8 +12,8 @@
  *   shared BRAM.
  * Ring full: new text is dropped and counted in drive_log_t.dropped; logging
  *   never blocks and never waits for core 0.
- * Context: callable from any task and before the scheduler starts; not from
- *   an ISR (it takes a FreeRTOS critical section and formats with vsnprintf).
+ * Context: the main superloop only (core 1 has no RTOS and no ISR that logs;
+ *   it formats with vsnprintf and takes no lock).
  * Never log credentials (c64demo.md Phase 4 item 6).
  *
  * Headers hold contracts; per-function commentary lives in drive_log.c.
@@ -28,6 +28,7 @@
 
 void drive_log_init(void);
 void drive_log_write(const char *s, uint32_t n);
+uint32_t drive_log_free_bytes(void);
 void drive_log_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 #endif /* DRIVE_LOG_H */

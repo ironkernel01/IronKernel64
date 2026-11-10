@@ -8,7 +8,7 @@
  *   fw_1541/netshare_config.h (gitignored; template netshare_config.example.h).
  *
  * Owner: backend_smb.c is the only file that calls libsmb2.
- * Context: the drive task only (backend.h). libsmb2 blocks the caller in
+ * Context: the main superloop only (backend.h). libsmb2 blocks the caller in
  *   poll() on its lwIP socket; every command is bounded by the libsmb2
  *   timeout NETSHARE_TIMEOUT_S.
  * Mount: bounded retries at session entry only (BACKEND_SMB_MOUNT_TRIES,
@@ -16,8 +16,8 @@
  *   share) are not retried. A failed command on a mounted share that is not
  *   a plain "not found" / "not a directory" drops the connection; the next
  *   mount reconnects.
- * Logging: server, share, user, dialect and NTSTATUS codes; never the
- *   password.
+ * Logging: server, share, dialect and NTSTATUS codes (never the user name
+ *   or the password).
  *
  * Headers hold contracts; per-function commentary lives in backend_smb.c.
  */

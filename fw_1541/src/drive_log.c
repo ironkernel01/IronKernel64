@@ -17,9 +17,6 @@
 #include "c64_platform.h"  /* C64_PLAT_SHM_BASE */
 #include "drive_proto.h"   /* DRIVE_LOG_*, drive_log_t */
 
-#include "FreeRTOS.h"      /* taskENTER_CRITICAL */
-#include "task.h"          /* taskENTER_CRITICAL, taskEXIT_CRITICAL */
-
 #include <stdarg.h>        /* va_list for drive_log_printf */
 #include <stdio.h>         /* vsnprintf */
 
@@ -52,8 +49,8 @@ void drive_log_init(void)
 /*
  * drive_log_write -- append n bytes of text to the ring.
  * Steps:
- *   1. In a critical section (several tasks log), read head and tail and
- *      compute the free space; tail is core 0's, read once.
+ *   1. Read head and tail and compute the free space (single-threaded
+ *      superloop: no lock, IK64_DEVIATION 11; tail is core 0's, read once).
  *   2. If the text does not fit, count it in dropped and return (logging
  *      never waits for core 0).
  *   3. Copy the bytes to text[(head + i) % DRIVE_LOG_TEXT_BYTES], fence,
@@ -69,7 +66,6 @@ void drive_log_write(const char *s, uint32_t n)
     if ((s == NULL) || (n == 0u)) {
         return;
     }
-    taskENTER_CRITICAL();
     head = g_hdr->head;
     used = head - g_hdr->tail;
     if ((used > DRIVE_LOG_TEXT_BYTES) || (n > (DRIVE_LOG_TEXT_BYTES - used))) {
@@ -81,15 +77,26 @@ void drive_log_write(const char *s, uint32_t n)
         __asm volatile("fence" ::: "memory");
         g_hdr->head = head + n;
     }
-    taskEXIT_CRITICAL();
+}
+
+/*
+ * drive_log_free_bytes -- free space in the ring (core 0 drains it).
+ * Steps:
+ *   1. Read head and tail once; used = head - tail (clamped to the ring size).
+ * Returns: DRIVE_LOG_TEXT_BYTES minus the bytes waiting.
+ */
+uint32_t drive_log_free_bytes(void)
+{
+    uint32_t used = g_hdr->head - g_hdr->tail;
+
+    return (used > DRIVE_LOG_TEXT_BYTES) ? 0u : (DRIVE_LOG_TEXT_BYTES - used);
 }
 
 /*
  * drive_log_printf -- format one line (at most DRIVE_LOG_LINE_BYTES - 1
  *   characters) and append it to the ring.
  * Steps:
- *   1. vsnprintf into a stack buffer (no shared state, so tasks do not
- *      contend for it); a longer line is cut at the buffer size.
+ *   1. vsnprintf into a stack buffer; a longer line is cut at the buffer size.
  *   2. drive_log_write the formatted length.
  * Returns: nothing.
  */

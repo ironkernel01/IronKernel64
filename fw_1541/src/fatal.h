@@ -8,8 +8,6 @@
  *   numeric code, then calls ik64_fatal; the handler logs, disables
  *   interrupts and parks the CPU. Core 0 sees the drive stop answering and
  *   shows ?DEVICE NOT PRESENT; the last log lines name the failing call.
- * Also provides the FreeRTOS hooks that end in the same handler
- *   (configASSERT, stack overflow, malloc failed; net/FreeRTOSConfig.h).
  *
  * Headers hold contracts; per-function commentary lives in fatal.c.
  */

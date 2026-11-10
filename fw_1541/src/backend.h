@@ -18,7 +18,7 @@
  *   no leading slash; "" is the root. Names are the backend's native names
  *   (UTF-8 for SMB); PETSCII mapping belongs to cbmdos.c.
  *
- * Concurrency: one task (the drive task, fw_1541/src/main.c) calls a
+ * Concurrency: one context (the superloop, fw_1541/src/main.c) calls a
  *   backend; no entry point is reentrant or callable from an ISR.
  *
  * Errors: every entry point returns backend_status_t. BACKEND_OK is success;

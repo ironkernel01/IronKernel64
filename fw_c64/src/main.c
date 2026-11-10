@@ -60,6 +60,28 @@ static XTmrCtr g_tmr;
 static volatile uint32_t g_ms;
 static ddr_probe_result_t g_ddr;
 static uint8_t g_load_buf[LOAD_BUF_BYTES];
+#define LOG1_DRAIN_MAX       (64u)                /* core 1 log bytes printed per main-loop pass */
+#define LOG1_PREFIX          "[1541] "
+static int g_log1_at_line_start = 1;   /* next core 1 log byte starts a line */
+
+/*
+ * log1_put -- UART sink of the core 1 log drain: "[1541] " before the first byte of each line.
+ * Returns: nothing.
+ */
+static void log1_put(char c)
+{
+    if (g_log1_at_line_start) {
+        const char *p;
+        for (p = LOG1_PREFIX; *p != '\0'; p++) {
+            outbyte(*p);
+        }
+        g_log1_at_line_start = 0;
+    }
+    outbyte(c);
+    if (c == '\n') {
+        g_log1_at_line_start = 1;
+    }
+}
 
 /*
  * fail_stop -- report a failed init step and park the core.
@@ -229,6 +251,8 @@ int main(void)
 
     for (;;) {
         const uint32_t events = keyboard_poll(g_ms);
+
+        (void)drive_client_log_drain(log1_put, LOG1_DRAIN_MAX);   /* core 1 text: UART only */
 
         (void)events;   /* Ctrl-B is reported through keyboard_cli_mode() */
         if (keyboard_cli_mode()) {

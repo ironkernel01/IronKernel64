@@ -42,9 +42,6 @@
 #include "drive_log.h"     /* drive_log_printf */
 #include "fatal.h"         /* ik64_fatal */
 
-#include "FreeRTOS.h"      /* vTaskSuspendAll */
-#include "task.h"          /* vTaskSuspendAll, xTaskResumeAll */
-
 #include <errno.h>         /* ENOMEM */
 #include <reent.h>         /* struct _reent for the _r entry points */
 #include <stdlib.h>        /* malloc family prototypes */
@@ -141,16 +138,15 @@ static int g_ready;                  /* free stacks filled (first call) */
 static uint32_t g_rejected_oversize; /* requests above the largest class */
 static uint32_t g_largest_request;   /* bytes */
 
-/* Locking: the scheduler is suspended around every pool update, the same
- * protection FreeRTOS's heap_4 uses; ISRs never allocate. */
+/* Locking: none (IK64_DEVIATION 11). Core 1 runs one superloop with no RTOS and no allocating
+ * ISR, so pool updates cannot interleave. The hooks stay as the one place to
+ * add protection if a second context ever allocates. */
 static void lock(void)
 {
-    vTaskSuspendAll();
 }
 
 static void unlock(void)
 {
-    (void)xTaskResumeAll();
 }
 
 /*
