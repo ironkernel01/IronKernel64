@@ -1,0 +1,2 @@
+# Shell scripts keep LF so they run in Git Bash, MSYS2 and on Linux after a Windows checkout.
+*.sh text eol=lf
