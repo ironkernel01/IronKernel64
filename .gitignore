@@ -28,3 +28,6 @@ third_party/*
 # core wrapper, the netlist and library build scripts and the network firmware glue. tools/setup_ironkernel.py
 # clones it when missing and pulls the RTLNet trees into ironkernel/src (tools/ironkernel.json).
 /ironkernel/
+
+# Drawing toolchain (installed by npm in diagrams/, not committed)
+diagrams/node_modules/
