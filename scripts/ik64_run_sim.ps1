@@ -7,19 +7,21 @@ Overview:
   * Serializes simulator use: the workstation has one Active-HDL seat. A
     machine-wide delete-on-close lock file (%LOCALAPPDATA%/RTLNet/
     activehdl.lock, shared by every checkout and git worktree) admits one
-    runner at a time; the runner also waits while any avhdl / avhdl_core /
+    runner at a time (only when ironkernel/src is present; a machine with neither
+    ironkernel/src nor the shared-machine folders runs without the lock, a machine
+    with the folders but without ironkernel/src is refused, exit 2); the runner also waits while any avhdl / avhdl_core /
     vsimsa process it does not own is running. It never stops another process.
   * Builds the vendor simulation libraries once per Vivado version, in place
     from the Vivado install (nothing copied into the repository), into
     %LOCALAPPDATA%/RTLNet/xlib-<tool version>: library `xpm` (xpm_memory, xpm_cdc)
-    and `unisims_ver` (the primitives the RTLNet pin layers and board tops
-    use, plus glbl). Stamp: xlib.done.
+    and `unisims_ver` (the primitives the board top and the benches use, plus
+    glbl); without the shared folders the cache is build/xlib-<tool version>. Stamp: xlib.done.
   * Expands the bench filelist (paths relative to the repository root,
     nested `-f`, `+incdir+`, `+define+`, `#`/`//` comments) into an absolute
     design.f in .sim/<bench>[_<tag>]/. A filelist inside a copied third-party
-    tree (an ancestor directory holding SOURCE.txt, e.g. third_party/rtlnet)
+    tree (an ancestor directory holding SOURCE.txt, e.g. third_party/redip-sid)
     resolves its paths against that tree's root, so upstream filelists nest
-    unmodified: `-f third_party/rtlnet/cores/rtlnet_common/hdl/rtlnet_common.f`.
+    unmodified.
     A line `$VIVADO/<path>` names a source inside the located Vivado install
     (e.g. `$VIVADO/data/ip/xpm/xpm_fifo/hdl/xpm_fifo.sv`, which the shared
     vendor library does not hold); it compiles into work.
@@ -38,11 +40,11 @@ Usage:
     -Waves (write .sim/<bench>/waves.asdb with +access +r).
 Revision: 11-09-2026
   * 11-09-2026: initial version, copied from RTLNet scripts/rtlnet_run_sim.ps1
-    (third_party/rtlnet, commit in SOURCE.txt): repository root = this repo, tool
-    resolvers dot-sourced from third_party/rtlnet/scripts/rtlnet_tools.ps1, summary
-    token IK64_SIM. The Active-HDL lock (%LOCALAPPDATA%/RTLNet/activehdl.lock) and
+    (commit in SOURCE.txt): repository root = this repo, summary token IK64_SIM. The Active-HDL lock (%LOCALAPPDATA%/RTLNet/activehdl.lock) and
     the shared vendor-library cache are deliberately the same as RTLNet's, so
     both repositories serialize on the single seat.
+  * 11-10-2026: tool resolvers from ik64_tools.ps1; the shared seat lock and cache apply
+    only with ironkernel/src (coordination guard).
   * 11-09-2026: nested filelists resolve against their own tree's root (third-party
     trees marked by SOURCE.txt); `$VIVADO/` filelist prefix.
 -------------------------------------------------------------------------------
@@ -66,13 +68,17 @@ $Defines  = @($Defines  | ForEach-Object { $_ -split ',' } | Where-Object { $_ -
 $PlusArgs = @($PlusArgs | ForEach-Object { $_ -split ',' } | Where-Object { $_ -ne '' })
 
 $Repo     = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-. (Join-Path $Repo 'third_party/rtlnet/scripts/rtlnet_tools.ps1')
-$AldecBin = Resolve-RtlnetAldec
+. (Join-Path $PSScriptRoot 'ik64_tools.ps1')
+$Co       = Assert-Ik64Coordination
+$AldecBin = Resolve-Ik64Aldec
 $Vsimsa   = Join-Path $AldecBin 'vsimsa.exe'
-$Xil      = Resolve-RtlnetXilinx
+$Xil      = Resolve-Ik64Xilinx
 $Vivado   = $Xil.Vivado
 $SimRoot  = Join-Path $Repo '.sim'
-$Shared   = Join-Path $env:LOCALAPPDATA 'RTLNet'
+# Shared machine (ironkernel/src present): the seat lock and the vendor-library cache live in
+# %LOCALAPPDATA%/RTLNet, shared with the other workstation checkout. Otherwise the cache is
+# build/xlib in this repository and there is no machine-wide lock.
+$Shared   = if ($Co.Shared) { Join-Path $env:LOCALAPPDATA 'RTLNet' } else { Join-Path $Repo 'build/xlib' }
 $XlibDir  = Join-Path $Shared "xlib-$($Xil.Version)"
 $RunName  = if ($Tag) { "${Bench}_$Tag" } else { $Bench }
 $WorkDir  = Join-Path $SimRoot $RunName
@@ -93,7 +99,7 @@ New-Item -ItemType Directory -Force -Path $Shared | Out-Null
 $LockPath = Join-Path $Shared 'activehdl.lock'
 $Lock = $null
 $deadline = (Get-Date).AddSeconds($LockWaitSeconds)
-while ($null -eq $Lock) {
+while ($Co.Shared -and $null -eq $Lock) {
     try {
         $Lock = [System.IO.FileStream]::new($LockPath, [System.IO.FileMode]::CreateNew,
             [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read, 4096,
@@ -171,7 +177,7 @@ try {
     $incs = New-Object System.Collections.Generic.List[string]
     $defs = New-Object System.Collections.Generic.List[string]
     # Root of a filelist: relative paths in a filelist resolve against the tree it belongs to. A filelist
-    # inside a copied third-party tree (an ancestor directory holding SOURCE.txt, e.g. third_party/rtlnet)
+    # inside a copied third-party tree (an ancestor directory holding SOURCE.txt, e.g. third_party/redip-sid)
     # uses that tree's root, because upstream filelists are relative to their own repository root;
     # every other filelist uses this repository's root.
     function Get-FilelistRoot([string]$full) {

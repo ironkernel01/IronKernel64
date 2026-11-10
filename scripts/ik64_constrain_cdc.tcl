@@ -44,7 +44,7 @@
 #   Default required classes: all five (as the RTLNet script).
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version (ik64-owned replacement for
-#     third_party/rtlnet/scripts/rtlnet_constrain_cdc.tcl; same classes, counting
+#     the earlier RTLNet cell-name script; same classes, counting
 #     and report format; module names per class are data, so a build may add the
 #     names of other synchronizer modules).
 # -----------------------------------------------------------------------------

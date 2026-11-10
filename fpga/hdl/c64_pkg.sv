@@ -15,7 +15,7 @@
 //     example a palette write landing in CTRL blanks the display), and reads
 //     return another register's value; nothing in hardware detects it.
 //   * Every register is 32 bits; partial (wstrb != 4'hF) writes are ignored by
-//     rtlnet_axil_slave and answered OKAY.
+//     ik64_axil_slave and answered OKAY.
 // Language: SystemVerilog-2012 (synthesizable package).
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version (sysregs, audio, video, PS/2 maps; video and
@@ -23,6 +23,7 @@
 //   * 11-09-2026: SID player map, CPU_CLK_HZ / SID_CLK_HZ, AUD_CTRL_SRC_BIT,
 //     WIN_SID_OFS and the 512 KiB window 0.
 //   * 11-09-2026: OLED map (c64_oled), WIN_OLED_OFS.
+//   * 11-10-2026: WIN1_ARB_OFS removed (no DDR3 arbiter); comments name the ik64 blocks.
 // Clocks: none (package).
 // -----------------------------------------------------------------------------
 package c64_pkg;
@@ -36,7 +37,7 @@ package c64_pkg;
 
   // Core 0 fabric window: the BD exports one AXI4-Lite master (M_AXI_C64,
   // base C64_WINDOW_BASE owned by fpga/bd/c64_bd.tcl); c64_top splits it with
-  // rtlnet_axil_decoder into these 64 KiB blocks at these offsets.
+  // ik64_axil_decoder into these 64 KiB blocks at these offsets.
   localparam logic [31:0] WIN_SYS_OFS  = 32'h0000_0000; // c64_sysregs (core 0 instance)
   localparam logic [31:0] WIN_AUD_OFS  = 32'h0001_0000; // sid_audio_out
   localparam logic [31:0] WIN_VID_OFS  = 32'h0002_0000; // c64_video registers
@@ -46,17 +47,15 @@ package c64_pkg;
   localparam logic [31:0] WIN_BLOCK_SIZE = 32'h0001_0000;
   localparam logic [31:0] WIN_SIZE     = 32'h0008_0000; // whole window, 512 KiB
 
-  // Core 1 fabric window (M_AXI_DRV, 1 MiB): RTLNet's register-window layout, so
-  // the RTLNet network drivers reused by fw_1541 see their blocks at RTLNet's
-  // offsets. The IronKernel 64 core 1 c64_sysregs instance takes RTLNet's SYS
-  // slot at offset 0. The MAC, MDIO and PROTOCOL slots are filled in Phase 4
-  // (network path); until then c64_top answers them with stubs (read 0).
+  // Core 1 fabric window (M_AXI_DRV, 1 MiB): the c64_sysregs instance of core 1 at
+  // offset 0, then the MAC, MDIO and PROTOCOL slots of the network core ik64_net_core
+  // (fpga/netlist/ik64_net_core.md section 3); the network driver library
+  // fw_1541/lib/libik64_netcore.a expects exactly these offsets.
   localparam logic [31:0] WIN1_SYS_OFS   = 32'h0000_0000; // c64_sysregs (core 1 instance)
-  localparam logic [31:0] WIN1_MAC_OFS   = 32'h0000_1000; // rtlnet_eth_mac (Phase 4)
-  localparam logic [31:0] WIN1_MDIO_OFS  = 32'h0000_2000; // rtlnet MDIO master (Phase 4)
-  localparam logic [31:0] WIN1_ARB_OFS   = 32'h0000_4000; // rtlnet_axi_arbiter register port (DDR3)
-  localparam logic [31:0] WIN1_PROT_OFS  = 32'h0001_0000; // rtlnet_eth_protocol (Phase 4)
-  localparam logic [31:0] WIN1_SLOT_SIZE = 32'h0000_1000; // SYS, MAC, MDIO, ARB slots
+  localparam logic [31:0] WIN1_MAC_OFS   = 32'h0000_1000; // network core MAC
+  localparam logic [31:0] WIN1_MDIO_OFS  = 32'h0000_2000; // network core MDIO master
+  localparam logic [31:0] WIN1_PROT_OFS  = 32'h0001_0000; // network core protocol wrapper
+  localparam logic [31:0] WIN1_SLOT_SIZE = 32'h0000_1000; // SYS, MAC, MDIO slots
   localparam logic [31:0] WIN1_PROT_SIZE = 32'h0001_0000; // PROTOCOL slot
   localparam logic [31:0] WIN1_SIZE      = 32'h0010_0000; // whole window, 1 MiB
 

@@ -11,3 +11,24 @@ tb_sid_player      fpga/tb/tb_sid_player.f
 tb_sid_player      fpga/tb/tb_sid_player.f     neg  plusargs=INJECT_FAILURE  expectfail
 tb_c64_oled        fpga/tb/tb_c64_oled.f
 tb_c64_oled        fpga/tb/tb_c64_oled.f       neg  plusargs=INJECT_FAILURE  expectfail
+# ik64 common blocks (fpga/hdl/common) and the DDR3 simulation model (fpga/hdl/ddr, fpga/tb/ddr)
+tb_ik64_sync           fpga/tb/tb_ik64_sync.f
+tb_ik64_sync           fpga/tb/tb_ik64_sync.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_pulse_sync     fpga/tb/tb_ik64_pulse_sync.f
+tb_ik64_pulse_sync     fpga/tb/tb_ik64_pulse_sync.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_gray_sync      fpga/tb/tb_ik64_gray_sync.f
+tb_ik64_gray_sync      fpga/tb/tb_ik64_gray_sync.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_reset_sync     fpga/tb/tb_ik64_reset_sync.f
+tb_ik64_reset_sync     fpga/tb/tb_ik64_reset_sync.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_axil_slave     fpga/tb/tb_ik64_axil_slave.f
+tb_ik64_axil_slave     fpga/tb/tb_ik64_axil_slave.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_axil_decoder   fpga/tb/tb_ik64_axil_decoder.f
+tb_ik64_axil_decoder   fpga/tb/tb_ik64_axil_decoder.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_axil_cdc       fpga/tb/tb_ik64_axil_cdc.f
+tb_ik64_axil_cdc       fpga/tb/tb_ik64_axil_cdc.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_ram_core       fpga/tb/tb_ik64_ram_core.f
+tb_ik64_ram_core       fpga/tb/tb_ik64_ram_core.f  neg  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_ram_core       fpga/tb/tb_ik64_ram_core.f  beh  defines=IK64_RAM_BEHAVIORAL
+tb_ik64_ram_core       fpga/tb/tb_ik64_ram_core.f  beh_neg  defines=IK64_RAM_BEHAVIORAL  plusargs=INJECT_FAILURE  expectfail
+tb_ik64_ddr_sim        fpga/tb/tb_ik64_ddr_sim.f
+tb_ik64_ddr_sim        fpga/tb/tb_ik64_ddr_sim.f  neg  plusargs=INJECT_FAILURE  expectfail

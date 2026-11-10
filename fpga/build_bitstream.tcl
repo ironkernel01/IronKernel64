@@ -7,20 +7,19 @@
 #   synthesis, CDC constraints, implementation, gated reports, bitstream, the
 #   MicroBlaze memory map (MMI) for updatemem and the fixed hardware platform.
 # Overview:
-#   * Derived from RTLNet boards/nexys_video/scripts/build_bitstream.tcl
-#     (commit ea70c8558ec4ef1133d1e9adde1b278e106302e0): same steps, gates,
-#     exit codes, MIG ASYNC_REG targets and vendor-IP methodology waivers.
 #   * Paths derive from this script's location (fpga/), so the build survives
 #     tree moves. Outputs go to build/fpga/ (build/fpga/<tag>/ with a tag).
 #   * Steps: block design c64_cpu (fpga/bd/c64_bd.tcl) under build/fpga/bd,
-#     output products with global synthesis; DDR3 controller IP rtlnet_ddr_mig
-#     (third_party/rtlnet/cores/rtlnet_ddr/ip/rtlnet_ddr_mig.tcl) under
-#     build/fpga/ip; RTL through fpga/c64_top.f; fpga/c64.xdc; synth_design
-#     (top c64_top, xc7a200tsbg484-1, generics BUILD_ID and BUILD_DIRTY); the
-#     RTLNet cell-name CDC constraints (third_party/rtlnet/scripts/
-#     rtlnet_constrain_cdc.tcl); opt/place/phys_opt/route; reports; gates;
-#     write_bitstream; write_mem_info; write_hw_platform -fixed (the input of
-#     both firmware BSP flows); build_info.txt.
+#     output products with global synthesis; the AMD IP of the DDR3 path under
+#     build/fpga/ip: the memory controller ik64_ddr_mig (fpga/ip/ik64_ddr_mig.tcl,
+#     ik64_ddr_mig_create) and the AXI clock converter ik64_ddr_cc
+#     (fpga/ip/ik64_ddr_cc.tcl, ik64_ddr_cc_create); RTL through fpga/c64_top.f
+#     (the closed network core netlist fpga/netlist/ik64_net_core.dcp is read with
+#     read_checkpoint before synthesis and becomes the cell u_net);
+#     fpga/c64.xdc; synth_design (top c64_top, xc7a200tsbg484-1, generics BUILD_ID
+#     and BUILD_DIRTY); fpga/constraints/ik64_rgmii.xdc; the ik64 cell-name CDC constraints (scripts/ik64_constrain_cdc.tcl);
+#     opt/place/phys_opt/route; reports; gates; write_bitstream; write_mem_info;
+#     write_hw_platform -fixed (the input of both firmware BSP flows); build_info.txt.
 #   * Filelists: relative paths resolve against the repository root, except in
 #     a filelist inside a copied third-party tree (an ancestor directory with
 #     SOURCE.txt), which resolves against that tree's root (as
@@ -28,26 +27,26 @@
 #   * reDIP-SID ($readmemh .hex tables and `include .svh files) lives in
 #     third_party/redip-sid/ik64; the +incdir in fpga/c64_top.f becomes
 #     synth_design -include_dirs, which is where Vivado finds them.
-#   * Expected crossing instances (a change fails the build until reviewed):
-#     fifo 12: u_ddr_cdc u_aw/w/b/ar/r_fifo (5); u_mac u_rx_fifo and u_tx_fifo,
-#       u_protocol u_ingress_fifo and u_egress_fifo, u_protocol u_cpu_rx_fifo and
-#       u_cpu_tx_fifo, and the checksum offload's u_tx/u_tx_fifo (7; RTLNet's
-#       network build counts these plus the UDP socket layer's u_rx_fifo,
-#       u_tx_fifo and u_tx_desc_fifo, absent here: UDP_ENABLE 0, no application);
-#     axil_cdc 6: u_arb register port, u_sid_cdc SID register slot, the MAC's
-#       and the protocol wrapper's register crossings, the CPU-path classifier's
-#       and the checksum offload's u_axil_cdc (RTLNet's network build has the
-#       same four network ones; its UDP echo, CSI2, S2MM and framebuffer ones
-#       are not in this design);
-#     gray 8: u_video frame and line counters (2); u_mac u_tx_count_sync, the
-#       protocol wrapper's four ingress/egress counter crossings and its CPU
-#       transmit reject counter u_cnt_cpu_reject_sync (6, as RTLNet).
-#     The RGMII interface timing (third_party/rtlnet/boards/nexys_video/
-#     constraints/rtlnet_nexys_video_rgmii.xdc) is read after synthesis because
-#     it names u_mac/u_rgmii_io cells.
+#   * Expected crossing instances in the top (a change fails the build until reviewed;
+#     the network core's own crossings are constrained inside its netlist and are not
+#     counted here):
+#     fifo 0: the DDR3 clock crossing is the AMD axi_clock_converter IP (its own
+#       constraints), so the packet-FIFO class of ik64_constrain_cdc.tcl matches nothing
+#       (the class is optional);
+#     axil_cdc 1: u_sid_cdc, the SID register slot cpu_clk -> sid_clk (the DDR3
+#       arbiter register port is gone with the arbiter);
+#     gray 2: u_video frame and line counters.
 #     The audio sample FIFO and the SID stream FIFO (u_sid_strm) are
-#     xpm_fifo_async, which rtlnet_constrain_cdc.tcl does not count as a class;
-#     their crossings carry the XPM macro's own constraints.
+#     xpm_fifo_async, which the CDC script does not count as a class; their
+#     crossings carry the XPM macro's own constraints.
+#     The RGMII interface timing (fpga/constraints/ik64_rgmii.xdc) is read after
+#     synthesis because it creates the forwarded clock rgmii_txc on the eth_txck pad from
+#     the clock pin of the netlist's TXC ODDR (found through the clk125_90 net) and the
+#     output delays refer to it. The netlist carries the IODELAY group and its own crossing
+#     constraints (clock names resolved through its ports, so they hold under the top's
+#     derived clock names).
+#     One report_cdc waiver is added here, for the AMD axi_clock_converter (CDC-15, vendor
+#     FIFO read register); see the comment at the waiver.
 #   * Gates (each its own exit code; nothing is written past a failed gate):
 #       99 bad arguments            11 missing source, filelist or XDC
 #       12 block design or IP       10 synthesis error or critical warning
@@ -57,8 +56,8 @@
 #       21 utilization above 80 %   22 check_timing: unclocked or
 #                                      unconstrained endpoints, loops
 #       23 user asynchronous reset endpoints or latches outside the named
-#          exceptions (rtlnet_reset_sync, vendor block design u_cpu, vendor
-#          DDR3 IP, the XPM macros of the audio and SID stream FIFOs)
+#          exceptions (ik64_reset_sync, the network core netlist u_net, vendor block
+#          design u_cpu, vendor DDR3 IP, the XPM macros of the audio and SID stream FIFOs)
 #       24 critical warnings during implementation
 #       27 report_cdc Critical/Warning finding, or a methodology finding
 #          (Warning or worse) without a waiver in this script
@@ -66,13 +65,14 @@
 #       42 write_hw_platform
 #       14 third-party setup check failed (python -I tools/setup_third_party.py --check;
 #          the script's first step)
+#       16 network core netlist missing or not merged into u_net
 #   * Reports in build/fpga/reports: utilization post-synth and post-route,
 #     timing summary, CDC (report_cdc -details), methodology, DRC,
 #     check_timing, clock networks, clock interaction, I/O, failing paths.
 # Usage: vivado -mode batch -source fpga/build_bitstream.tcl -tclargs
 #          [build_id <8 hex>] [dirty 0|1] [tag <name>]   (pairs as "name value" or name=value)
 #   Run through the Vivado slot wrapper (one build needs 4.5-5 GB):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File third_party/rtlnet/scripts/rtlnet_vivado.ps1 `
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ik64_vivado.ps1 `
 #     -Tcl <repo>/fpga/build_bitstream.tcl -Log <repo>/build/fpga/build.log
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version.
@@ -83,12 +83,18 @@
 #   * 11-09-2026: SYNTH-5 waiver for the c64_oled framebuffer (distributed RAM by design); no gate loosened.
 #   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
 #     u_sid_strm/u_fifo joins the async-reset exceptions.
+#   * 11-10-2026: release split: no RTLNet source. The network core is the closed netlist u_net
+#     (read_checkpoint before synthesis, new gate 16 if the netlist is missing or not merged); ik64_rgmii.xdc replaces RTLNet's
+#     RGMII constraints; ik64_constrain_cdc.tcl replaces the RTLNet script (expectation fifo 0,
+#     axil_cdc 1, gray 2); the DDR3 path is AMD axi_clock_converter + MIG (ik64_ddr_cc, ik64_ddr_mig), MIG
+#     paths u_ddr/u_mig/u_ik64_ddr_mig_mig; ik64_reset_sync in the reset-sync inventory. Every gate kept.
+#     One new waiver: report_cdc CDC-15 inside the AMD axi_clock_converter (scoped to its FIFO RAM and output registers).
 # -----------------------------------------------------------------------------
 
 # Script-relative roots.
 set SCRIPT_DIR [file normalize [file dirname [info script]]]
 set REPO       [file normalize [file join $SCRIPT_DIR ".."]]
-set RTLNET     [file join $REPO third_party rtlnet]
+set NETLIST    [file join $REPO fpga netlist]
 set BUILD_DIR  [file join $REPO build fpga]
 set RPT_DIR    [file join $BUILD_DIR reports]
 set PART       xc7a200tsbg484-1
@@ -202,16 +208,27 @@ if {[catch {
 } err]} { nv_exit 12 "block design: $err" }
 
 # ---------------------------------------------------------------------------
-# DDR3 controller IP (MIG, generated from the RTLNet project file).
+# DDR3 path IP: the MIG memory controller (generated from fpga/ip/ik64_ddr_mig.prj)
+# and the AXI clock converter (cpu_clk -> ui_clk).
 # ---------------------------------------------------------------------------
 if {[catch {
-  source [file join $RTLNET cores rtlnet_ddr ip rtlnet_ddr_mig.tcl]
-  rtlnet_ddr_mig_create [file join $BUILD_DIR ip]
+  source [file join $REPO fpga ip ik64_ddr_mig.tcl]
+  ik64_ddr_mig_create [file join $BUILD_DIR ip mig]
 } err]} { nv_exit 12 "DDR3 controller IP: $err" }
+if {[catch {
+  source [file join $REPO fpga ip ik64_ddr_cc.tcl]
+  ik64_ddr_cc_create [file join $BUILD_DIR ip cc]
+} err]} { nv_exit 12 "DDR3 clock converter IP: $err" }
 
 # ---------------------------------------------------------------------------
 # RTL and constraints.
 # ---------------------------------------------------------------------------
+# The network core is a netlist: read_checkpoint (before synth_design) makes it the definition of the
+# module ik64_net_core that c64_top instantiates as u_net; the stub fpga/netlist/ik64_net_core_stub.sv
+# documents the ports and is not read here (a black-box stub would raise a critical warning).
+set net_dcp [file join $NETLIST ik64_net_core.dcp]
+if {![file exists $net_dcp]} { nv_exit 16 "network core netlist not found: $net_dcp" }
+if {[catch {read_checkpoint $net_dcp} err]} { nv_exit 16 "reading the network core netlist: $err" }
 read_filelist $REPO fpga/c64_top.f
 set xdc [file join $REPO fpga c64.xdc]
 if {![file exists $xdc]} { nv_exit 11 "XDC not found: $xdc" }
@@ -226,13 +243,20 @@ if {[catch {synth_design {*}$synth_args} err]} { nv_exit 10 "synth_design: $err"
 set crit_synth [get_msg_config -count -severity {CRITICAL WARNING}]
 if {$crit_synth > 0} { nv_exit 10 "$crit_synth critical warning(s) up to synthesis (see the log)" }
 report_utilization -file [file join $RPT_DIR post_synth_utilization.rpt]
+
+# Network core: the netlist was read as a source before synthesis (it resolves the module
+# ik64_net_core of c64_top); it must now sit inside u_net. It carries its own IODELAY group
+# and every crossing constraint of the core.
+set n_net [llength [get_cells -quiet -hierarchical -filter {NAME =~ u_net/*}]]
+puts "ik64_build: network core netlist merged, $n_net cells inside u_net"
+if {$n_net == 0} { nv_exit 16 "u_net holds no cells after synthesis (netlist not merged)" }
 write_checkpoint -force [file join $BUILD_DIR post_synth.dcp]
 
-# CDC-8 on the MIG reset synchronizers (RTLNet): ASYNC_REG on the first two
+# CDC-8 on the MIG reset synchronizers: ASYNC_REG on the first two
 # stages of each chain; a missing target fails the build.
 set mig_re_list {
-  {^u_ddr/g_amd\.u_ddr/u_mig/u_rtlnet_ddr_mig_mig/u_iodelay_ctrl/rst_ref_sync_r_reg\[0\]\[[01]\]$}
-  {^u_ddr/g_amd\.u_ddr/u_mig/u_rtlnet_ddr_mig_mig/u_ddr3_infrastructure/rstdiv0_sync_r_reg\[[01]\]$}
+  {^u_ddr/u_mig/u_ik64_ddr_mig_mig/u_iodelay_ctrl/rst_ref_sync_r_reg\[0\]\[[01]\]$}
+  {^u_ddr/u_mig/u_ik64_ddr_mig_mig/u_ddr3_infrastructure/rstdiv0_sync_r_reg\[[01]\]$}
 }
 set mig_fdpe [get_cells -quiet -hierarchical -filter {REF_NAME == FDPE}]
 foreach re $mig_re_list {
@@ -243,19 +267,31 @@ foreach re $mig_re_list {
   puts "ik64_build: ASYNC_REG set on [llength $cells] MIG reset synchronizer cells ($re)"
 }
 
-# RGMII interface timing (names the MAC's pin-layer cells, so it is read on the synthesized netlist).
-set rgmii_xdc [file join $RTLNET boards nexys_video constraints rtlnet_nexys_video_rgmii.xdc]
+# RGMII interface timing (pin level; names the ports and the netlist's rgmii_txc clock).
+set rgmii_xdc [file join $REPO fpga constraints ik64_rgmii.xdc]
 if {![file exists $rgmii_xdc]} { nv_exit 11 "XDC not found: $rgmii_xdc" }
 if {[catch {read_xdc $rgmii_xdc} err]} { nv_exit 13 "RGMII constraints: $err" }
 
 # Crossing constraints by cell name (counts in the header).
-set ::rtlnet_cdc_required {sync reset gray fifo axil_cdc}
-set ::rtlnet_cdc_expect   {fifo 12 axil_cdc 6 gray 8}
-set ::rtlnet_cdc_report   [file join $RPT_DIR cdc_instances.txt]
-if {[catch {source [file join $RTLNET scripts rtlnet_constrain_cdc.tcl]} err]} { nv_exit 13 "CDC constraints: $err" }
+set ::ik64_cdc_required {sync reset gray axil_cdc}
+set ::ik64_cdc_expect   {fifo 0 axil_cdc 1 gray 2}
+set ::ik64_cdc_report   [file join $RPT_DIR cdc_instances.txt]
+if {[catch {source [file join $REPO scripts ik64_constrain_cdc.tcl]} err]} { nv_exit 13 "CDC constraints: $err" }
+
+# report_cdc waiver for the AMD AXI clock converter (u_ddr_cdc/u_cc): the IP's write-data FIFO (fifo_generator, distributed
+# RAM) is read through a register behind the FIFO read enable, which report_cdc flags as CDC-15 (clock enable controlled CDC
+# structure, one Warning). It is vendor-generated and constrained by the IP's own XDC (set_max_delay -datapath_only,
+# set_bus_skew on its Gray pointers); no user logic is inside. Scope: the RAM clock pins to the output-register D pins of the
+# converter's FIFO memories only, rule CDC-15 only; a missing scope fails the build.
+set cc_ip u_ddr_cdc/u_cc/inst/gen_clock_conv.gen_async_conv.asyncfifo_axi
+set cc_from [get_pins -quiet -hierarchical -filter "NAME =~ $cc_ip/*dm_gen.dm/RAM_reg_*/CLK"]
+set cc_to   [get_pins -quiet -hierarchical -filter "NAME =~ $cc_ip/*dm_gen.dm/*dout_i_reg*/D"]
+if {[llength $cc_from] == 0 || [llength $cc_to] == 0} { nv_exit 13 "AXI clock converter CDC-15 waiver: scope not found ([llength $cc_from] / [llength $cc_to] pins)" }
+create_waiver -type CDC -id CDC-15 -user ik64 -from $cc_from -to $cc_to   -description "AMD axi_clock_converter (fifo_generator) internal: distributed-RAM output register behind the FIFO read enable; vendor IP with its own constraints"
+puts "ik64_build: CDC-15 waiver for the AXI clock converter: [llength $cc_from] RAM clock pins, [llength $cc_to] output register pins"
 
 # ---------------------------------------------------------------------------
-# Implementation (RTLNet's timing-driven directives for the MicroBlaze V caches).
+# Implementation (timing-driven directives for the MicroBlaze V caches).
 # ---------------------------------------------------------------------------
 if {[catch {opt_design} err]}   { nv_exit 25 "opt_design: $err" }
 if {[catch {place_design -directive Explore} err]} { nv_exit 26 "place_design: $err" }
@@ -349,8 +385,9 @@ puts "ik64_build: utilization [join $util_summary {, }]"
 
 # ---------------------------------------------------------------------------
 # Gate: asynchronous clear/preset endpoints and latches. Named exceptions:
-# rtlnet_reset_sync instances (u_rst_*), the vendor block design (u_cpu), the
-# vendor DDR3 controller IP (u_ddr/g_amd.u_ddr/u_mig) and the XPM macro of the
+# ik64_reset_sync instances (u_rst_*), the closed network core netlist (u_net: the
+# reset synchronizers of the core's own clock domains), the vendor block design (u_cpu),
+# the vendor DDR3 controller IP (u_ddr/u_mig) and the XPM macro of the
 # audio sample FIFO (u_audio/u_fifo) and the SID stream FIFO (u_sid_strm/u_fifo),
 # both xpm_fifo_async internal reset logic.
 # ---------------------------------------------------------------------------
@@ -359,6 +396,8 @@ set n_async_rs 0
 set n_async_bd 0
 set n_async_mig 0
 set n_async_xpm 0
+set n_async_net 0
+set n_async_cc 0
 set bad_async {}
 foreach c [get_cells -quiet -hierarchical -filter {REF_NAME == FDCE || REF_NAME == FDPE}] {
   set p [get_pins -quiet $c/CLR]
@@ -368,13 +407,15 @@ foreach c [get_cells -quiet -hierarchical -filter {REF_NAME == FDCE || REF_NAME 
   set parent [get_cells -quiet [get_property PARENT $c]]
   set pref ""
   if {$parent ne ""} { set pref "[get_property REF_NAME $parent] [get_property ORIG_REF_NAME $parent]" }
-  if {[regexp {/pipe_reg\[[0-9]+\]$} $c] && [regexp {(^| )rtlnet_reset_sync} $pref]} { incr n_async_rs; continue }
+  if {[regexp {/pipe_reg\[[0-9]+\]$} $c] && [regexp {(^| )ik64_reset_sync} $pref]} { incr n_async_rs; continue }
   if {[string match "u_cpu/*" $c]} { incr n_async_bd; continue }
-  if {[string match "u_ddr/g_amd.u_ddr/u_mig/*" $c]} { incr n_async_mig; continue }
+  if {[string match "u_net/*" $c]} { incr n_async_net; continue }
+  if {[string match "u_ddr/u_mig/*" $c]} { incr n_async_mig; continue }
+  if {[string match "u_ddr_cdc/u_cc/*" $c]} { incr n_async_cc; continue }
   if {[string match "u_audio/u_fifo/*" $c] || [string match "u_sid_strm/u_fifo/*" $c]} { incr n_async_xpm; continue }
   lappend bad_async $c
 }
-puts "ik64_build: asynchronous reset endpoints: rtlnet_reset_sync $n_async_rs, vendor block design $n_async_bd, vendor memory controller $n_async_mig, XPM audio and SID stream FIFOs $n_async_xpm, other [llength $bad_async]; latches [llength $latches]"
+puts "ik64_build: asynchronous reset endpoints: ik64_reset_sync $n_async_rs, network core netlist $n_async_net, vendor block design $n_async_bd, vendor memory controller $n_async_mig, vendor AXI clock converter $n_async_cc, XPM audio and SID stream FIFOs $n_async_xpm, other [llength $bad_async]; latches [llength $latches]"
 if {[llength $latches] > 0} { nv_exit 23 "latches: [lrange $latches 0 9]" }
 if {[llength $bad_async] > 0} { nv_exit 23 "user asynchronous reset endpoints: [lrange $bad_async 0 9]" }
 
@@ -394,12 +435,12 @@ foreach line [split [report_cdc -details -return_string] "\n"] {
     lappend cdc_waived "$id x$cnt"
   }
 }
-puts "ik64_build: report_cdc: $cdc_ids finding classes, waived by rtlnet_constrain_cdc.tcl: [expr {[llength $cdc_waived] ? [join $cdc_waived {, }] : {none}}]"
+puts "ik64_build: report_cdc: $cdc_ids finding classes, waived by ik64_constrain_cdc.tcl and the netlist: [expr {[llength $cdc_waived] ? [join $cdc_waived {, }] : {none}}]"
 if {$cdc_ids == 0} { nv_exit 27 "report_cdc ID summary not found (format changed?)" }
 if {[llength $cdc_bad] > 0} { nv_exit 27 "report_cdc findings: [join $cdc_bad {, }]" }
 
 # Waiver test for LUTAR-1 on the reset ANDs (rst_arstn, pix_arstn, aud_arstn): the LUT drives only
-# CLR pins of rtlnet_reset_sync chains.
+# CLR pins of ik64_reset_sync chains.
 proc nv_waive_reset_and {desc} {
   if {![regexp {^LUT cell u_rst_[a-z0-9_]+/pipe\[[0-9]+\]_i_1(__[0-9]+)?,} $desc]} { return 0 }
   set pins [regexp -all -inline {\S+/(?:CLR|PRE)\M} $desc]
@@ -409,9 +450,9 @@ proc nv_waive_reset_and {desc} {
   }
   return 1
 }
-# Waiver test for LUTAR-1 in the vendor MIG (RTLNet).
+# Waiver test for LUTAR-1 in the vendor MIG.
 proc nv_waive_mig_lutar {desc} {
-  set m {u_ddr/g_amd\.u_ddr/u_mig/u_rtlnet_ddr_mig_mig}
+  set m {u_ddr/u_mig/u_ik64_ddr_mig_mig}
   set lut_re {/u_iodelay_ctrl/rstdiv2_sync_r\[11\]_i_1, }
   if {![regexp "^LUT cell ${m}${lut_re}" $desc]} { return 0 }
   set pins [regexp -all -inline {\S+/(?:CLR|PRE)\M} $desc]
@@ -421,21 +462,21 @@ proc nv_waive_mig_lutar {desc} {
   }
   return 1
 }
-# Waivers: {rule test rationale ?required?} (RTLNet format; see its build script).
+# Waivers: {rule test rationale ?required?}.
 set meth_waivers {
   {LUTAR-1 {^LUT cell u_cpu/\S+, with 2 or more inputs, drives asynchronous preset/clear pin\(s\) u_cpu/}
            {vendor MDM JTAG control logic inside the MicroBlaze block design}}
   {LUTAR-1 proc:nv_waive_reset_and
-           {rst_arstn / pix_arstn / aud_arstn = button AND MMCM locked into the rtlnet_reset_sync chains only}}
+           {rst_arstn / pix_arstn / aud_arstn = button AND MMCM locked into the ik64_reset_sync chains only}}
   {TIMING-9 {.}
            {report_cdc (gated above: no Critical/Warning) shows every crossing synchronized; the asynchronous groups are the MDM BSCAN clocks of the vendor IP}}
   {TIMING-47 {^A False Path timing constraint is set between synchronous clocks rgmii_rxc_v and rgmii_rxc }
-           {RGMII same-edge capture: the opposite-edge setup and same-edge hold pairs of the DDR input describe no capture (rtlnet_nexys_video_rgmii.xdc, MAC documentation section 6)}}
+           {RGMII same-edge capture: the opposite-edge setup and same-edge hold pairs of the DDR input describe no capture (fpga/constraints/ik64_rgmii.xdc)}}
   {LUTAR-1 proc:nv_waive_mig_lutar
-           {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: vendor-generated reset logic, LUT u_iodelay_ctrl/rstdiv2_sync_r[11]_i_1 drives the PRE pins of the replicated rstdiv0_sync_r1_reg_rep cells of u_ddr3_infrastructure (reset synchronizer, no user logic)}
+           {AMD MIG IP u_ddr/u_mig: vendor-generated reset logic, LUT u_iodelay_ctrl/rstdiv2_sync_r[11]_i_1 drives the PRE pins of the replicated rstdiv0_sync_r1_reg_rep cells of u_ddr3_infrastructure (reset synchronizer, no user logic)}
            {match}}
-  {PDRC-190 {^The FDRE cell u_ddr/g_amd\.u_ddr/u_mig/u_rtlnet_ddr_mig_mig/temp_mon_enabled\.u_tempmon/device_temp_sync_r5_reg\[([0-9]|1[01])\] in site }
-            {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: vendor-generated temperature monitor, cells temp_mon_enabled.u_tempmon/device_temp_sync_r5_reg[0..11] (XADC temperature synchronizer); the placement is fixed by the vendor IP}
+  {PDRC-190 {^The FDRE cell u_ddr/u_mig/u_ik64_ddr_mig_mig/temp_mon_enabled\.u_tempmon/device_temp_sync_r5_reg\[([0-9]|1[01])\] in site }
+            {AMD MIG IP u_ddr/u_mig: vendor-generated temperature monitor, cells temp_mon_enabled.u_tempmon/device_temp_sync_r5_reg[0..11] (XADC temperature synchronizer); the placement is fixed by the vendor IP}
             {0 1 2 3 4 5 6 7 8 9 10 11}}
   {SYNTH-6 {^The timing for the instance (u_sid/mem_reg|u_sid/u_sid/filter/w0_T_lsl17_6581_reg|u_sid/u_sid/waveform/p_t_6581_reg|u_sid/u_sid/waveform/ps__6581_reg), implemented as a RAM block, might be sub-optimal as no output register was merged into the block\.}
            {sid_clk domain (50 MHz), post-route WNS of the domain above 6 ns: the reDIP-SID table ROMs (upstream, unmodified, read with zero added latency by design) and the sid_player write FIFO RAM, whose output register would add a read cycle with no timing need}
@@ -443,7 +484,7 @@ set meth_waivers {
   {SYNTH-5 {^The instance u_oled/g_fb\[[0-3]\]\.mem_reg_[0-9_]+ is implemented as distributed LUT RAM }
            {c64_oled framebuffer: 2 KiB requested as ram_style distributed on purpose (block RAM is at 79 % against the 80 % gate); the message only states that Vivado kept the requested mapping}}
   {XDCB-5 {^The option '-to : \[get_pins -hier -include_replicated_objects -filter \{NAME =~ \*temp_mon_enabled\.u_tempmon/device_temp_sync_r1_reg\[\*\]/D\}\]' of constraint 'set_max_delay' }
-          {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: the vendor-generated temperature monitor constraint (set_max_delay to temp_mon_enabled.u_tempmon/device_temp_sync_r1_reg[*]/D) uses a hierarchical pin query; it is vendor IP constraint text}
+          {AMD MIG IP u_ddr/u_mig: the vendor-generated temperature monitor constraint (set_max_delay to temp_mon_enabled.u_tempmon/device_temp_sync_r1_reg[*]/D) uses a hierarchical pin query; it is vendor IP constraint text}
           {match}}
 }
 array set meth_seen {}
@@ -525,7 +566,7 @@ puts $fh "wns_ns        $wns"
 puts $fh "whs_ns        $whs"
 puts $fh "wpws_ns       $wpws"
 puts $fh "utilization   [join $util_summary {, }]"
-puts $fh "cdc_classes   $::rtlnet_cdc_result"
+puts $fh "cdc_classes   $::ik64_cdc_result"
 puts $fh "bitstream_hw  [file tail $bit_hw]"
 puts $fh "mmi           [file tail $mmi]"
 puts $fh "xsa           [file tail $xsa]"

@@ -5,15 +5,15 @@
 #   the inferred fpga/hdl/redip/muladd.sv (D4): proves the sources are accepted
 #   (readmemh tables, elaboration-time $tanh/$pow), reports utilization and the
 #   worst setup slack at a 10 ns cpu_clk. No implementation.
-#   rtlnet_synth_check.tcl is not used: it takes filelists relative to the
-#   RTLNet tree and has no clock constraint, so no slack.
-# Usage: scripts via third_party/rtlnet/scripts/rtlnet_vivado.ps1
+#   scripts/ik64_common_synth_check.tcl is not used: it has no clock constraint, so no slack.
+# Usage: scripts via scripts/ik64_vivado.ps1
 #   -Tcl fpga/synth_sid_player.tcl -Log build/synth/sid_player.log
 #   [-TclArgs <part>]   (default xc7a200tsbg484-1)
 # Exit codes: 0 pass, 10 synthesis error or critical warning.
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version.
 #   * 11-09-2026: reads third_party/redip-sid/ik64 instead of private patched copies.
+#   * 11-10-2026: ik64_axil_slave replaces the RTLNet source; launcher is scripts/ik64_vivado.ps1.
 # -----------------------------------------------------------------------------
 set repo [file normalize [file join [file dirname [info script]] ".."]]
 set part [expr {[llength $argv] > 0 ? [lindex $argv 0] : "xc7a200tsbg484-1"}]
@@ -28,7 +28,8 @@ foreach f {sid_pkg.sv sid_control.sv sid_waveform.sv sid_envelope.sv sid_pot.sv 
   }
 }
 set files [list \
-  [file join $repo third_party rtlnet cores rtlnet_common hdl rtlnet_axil_slave.sv] \
+  [file join $repo fpga hdl common ik64_common_pkg.sv] \
+  [file join $repo fpga hdl common ik64_axil_slave.sv] \
   [file join $repo fpga hdl c64_pkg.sv] \
   [file join $sid sid_pkg.sv] \
   [file join $sid sid_control.sv] \

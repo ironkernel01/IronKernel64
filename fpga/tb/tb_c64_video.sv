@@ -42,7 +42,7 @@
 
 module tb_c64_video;
 
-  import rtlnet_tb_pkg::*;
+  import ik64_tb_pkg::*;
   import c64_pkg::*;
 
   // ---------------------------------------------------------------------------
@@ -84,8 +84,8 @@ module tb_c64_video;
   always #(CPU_HALF_NS) cpu_clk = ~cpu_clk;
   always #(PIX_HALF_NS) pix_clk = ~pix_clk;
 
-  rtlnet_reset_sync u_rst_cpu (.clk(cpu_clk), .arstn(arstn), .resetn(cpu_resetn));
-  rtlnet_reset_sync u_rst_pix (.clk(pix_clk), .arstn(arstn), .resetn(pix_resetn));
+  ik64_reset_sync u_rst_cpu (.clk(cpu_clk), .arstn(arstn), .resetn(cpu_resetn));
+  ik64_reset_sync u_rst_pix (.clk(pix_clk), .arstn(arstn), .resetn(pix_resetn));
 
   // ---------------------------------------------------------------------------
   // AXI4-Lite master, framebuffer port A driver, DUT
@@ -99,7 +99,7 @@ module tb_c64_video;
   logic [1:0]            rresp;
   logic                  awvalid, awready, wvalid, wready, bvalid, bready, arvalid, arready, rvalid, rready;
 
-  rtlnet_tb_axil_master #(.ADDR_W(REG_ADDR_W)) u_mst (
+  ik64_tb_axil_master #(.ADDR_W(REG_ADDR_W)) u_mst (
     .aclk(cpu_clk), .awaddr(awaddr), .awvalid(awvalid), .awready(awready), .wdata(wdata), .wstrb(wstrb),
     .wvalid(wvalid), .wready(wready), .bresp(bresp), .bvalid(bvalid), .bready(bready), .araddr(araddr),
     .arvalid(arvalid), .arready(arready), .rdata(rdata), .rresp(rresp), .rvalid(rvalid), .rready(rready));

@@ -11,7 +11,7 @@
 //     never drives either line, and c64_top connects both pins as inputs with
 //     pull-ups. Firmware therefore cannot set keyboard LEDs or reset the
 //     keyboard; the PIC24 bridge initialises the keyboard itself.
-//   * Registers (AXI4-Lite through rtlnet_axil_slave, REG_ADDR_W-bit address;
+//   * Registers (AXI4-Lite through ik64_axil_slave, REG_ADDR_W-bit address;
 //     offsets and bits are c64_pkg PS2_*). Undefined offsets read 0 and
 //     ignore writes.
 //       PS2_DATA    RO [7:0] oldest byte, [PS2_DATA_VALID_BIT] 1 when a byte
@@ -23,7 +23,7 @@
 //       PS2_CTRL    RW [IRQ_EN].
 //   * irq (output) = STATUS.AVAIL && CTRL.IRQ_EN, registered, a level.
 //   * Input path: ps2_clk and ps2_data are asynchronous. Each enters a
-//     3-stage rtlnet_sync chain in cpu_clk (reset value 1, the idle level),
+//     3-stage ik64_sync chain in cpu_clk (reset value 1, the idle level),
 //     then a glitch filter: the filtered line takes a new value only after the
 //     synchronized line has held it for FILTER_CYCLES consecutive clocks.
 //     FILTER_NS is one sixteenth of the shortest PS/2 half period
@@ -181,7 +181,7 @@ module ps2_rx #(
   // ---------------------------------------------------------------------------
   // AXI4-Lite to register strobes; read data is due one clock after reg_rd_en.
   // ---------------------------------------------------------------------------
-  rtlnet_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
+  ik64_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
     .s_axi_aclk    (cpu_clk),
     .s_axi_aresetn (cpu_resetn),
     .s_axi_awaddr  (s_axi_awaddr),
@@ -213,7 +213,7 @@ module ps2_rx #(
   // Asynchronous PS/2 lines: 3-stage level synchronizers in cpu_clk, idle
   // high, so the chains reset to 1. Only the last stage is read.
   // ---------------------------------------------------------------------------
-  rtlnet_sync #(.WIDTH(LINES), .STAGES(SYNC_STAGES), .RESET_VALUE(1'b1)) u_line_sync (
+  ik64_sync #(.WIDTH(LINES), .STAGES(SYNC_STAGES), .RESET_VALUE(1'b1)) u_line_sync (
     .clk    (cpu_clk),
     .resetn (cpu_resetn),
     .d      ({ps2_data, ps2_clk}),

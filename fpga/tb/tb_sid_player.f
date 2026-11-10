@@ -3,8 +3,8 @@
 # gateware, deviations D1..D3 in fpga/DEVIATIONS.md, CERN-OHL-S-2.0) without the iCE40 board files; muladd.sv
 # comes from fpga/hdl/redip (deviation D4: inferred multiply-add instead of SB_MAC16). The *.hex tables and
 # `include files resolve next to the source file in Active-HDL, and via +incdir elsewhere.
--f third_party/rtlnet/cores/rtlnet_common/hdl/rtlnet_common.f
--f third_party/rtlnet/cores/rtlnet_common/testbench/rtlnet_tb_common.f
+-f fpga/hdl/common/ik64_common.f
+-f fpga/tb/common/ik64_tb_common.f
 +incdir+third_party/redip-sid/ik64
 third_party/redip-sid/ik64/sid_pkg.sv
 third_party/redip-sid/ik64/sid_control.sv

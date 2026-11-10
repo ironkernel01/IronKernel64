@@ -38,7 +38,7 @@
 #   * DDR3 path: the four cache masters (M_AXI_IC/M_AXI_DC of both cores) join
 #     in the SmartConnect sc_ddr; its master is the exported 128-bit AXI4 port
 #     M_AXI_DDR on clk with no ID signals. The clock crossing to the memory
-#     controller is outside the block design (rtlnet_axi_cdc in c64_top).
+#     controller is outside the block design (ik64_axi_cdc in c64_top).
 #     The cores' DDR3 partitions are disjoint (common/c64_platform.h), so the
 #     write-through caches need no coherence between the cores.
 #   * Clock and reset come from outside: port `clk` (cpu_clk, 100 MHz) and

@@ -6,7 +6,7 @@
 //   (Nexys Video RM section 16; the codec is the I2S slave, the FPGA drives
 //   MCLK, BCLK and LRCLK).
 // Overview:
-//   * Registers (AXI4-Lite through rtlnet_axil_slave, REG_ADDR_W-bit address;
+//   * Registers (AXI4-Lite through ik64_axil_slave, REG_ADDR_W-bit address;
 //     offsets and bits are c64_pkg AUD_*). Undefined offsets read 0 and
 //     ignore writes.
 //       AUD_CTRL      RW [ENABLE] play the FIFO (0: send zeros, FIFO is not
@@ -95,8 +95,8 @@
 //         empty it sends a zero frame and counts one underrun. If ENABLE is
 //         clear, or the FIFO is in reset, it sends a zero frame, does not
 //         read the FIFO and counts nothing.
-//   * CDC inventory: ENABLE cpu_clk -> aud_clk by a 3-stage rtlnet_sync
-//     (a level); underrun events aud_clk -> cpu_clk by rtlnet_pulse_sync
+//   * CDC inventory: ENABLE cpu_clk -> aud_clk by a 3-stage ik64_sync
+//     (a level); underrun events aud_clk -> cpu_clk by ik64_pulse_sync
 //     (events are one LRCLK period, 256 aud_clk cycles, apart); frames, LEVEL
 //     and reset handshake inside xpm_fifo_async.
 // Language: SystemVerilog-2012.
@@ -261,7 +261,7 @@ module sid_audio_out #(
   // ---------------------------------------------------------------------------
   // AXI4-Lite to register strobes; read data is due one clock after reg_rd_en.
   // ---------------------------------------------------------------------------
-  rtlnet_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
+  ik64_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
     .s_axi_aclk    (cpu_clk),
     .s_axi_aresetn (cpu_resetn),
     .s_axi_awaddr  (s_axi_awaddr),
@@ -470,7 +470,7 @@ module sid_audio_out #(
   // ---------------------------------------------------------------------------
   // CDC: CTRL.ENABLE into aud_clk (a register held for many aud_clk cycles).
   // ---------------------------------------------------------------------------
-  rtlnet_sync #(.WIDTH(1), .STAGES(ENABLE_STAGES), .RESET_VALUE(1'b0)) u_enable_sync (
+  ik64_sync #(.WIDTH(1), .STAGES(ENABLE_STAGES), .RESET_VALUE(1'b0)) u_enable_sync (
     .clk    (aud_clk),
     .resetn (aud_resetn),
     .d      (ctrl_enable),
@@ -478,7 +478,7 @@ module sid_audio_out #(
   );
 
   // CDC: underrun events into cpu_clk (one per LRCLK period at most).
-  rtlnet_pulse_sync u_underrun_sync (
+  ik64_pulse_sync u_underrun_sync (
     .src_clk    (aud_clk),
     .src_resetn (aud_resetn),
     .src_pulse  (underrun_aud),

@@ -33,7 +33,7 @@
 //         and COM pins 0x00; this core uses the values requested by the
 //         project (0xA1, 0xC8, 0xDA 0x02, parameters SEG_REMAP and
 //         COM_REVERSE; VERIFY orientation on the board).
-//   * Registers (AXI4-Lite through rtlnet_axil_slave, OLED_ADDR_W = 12 address
+//   * Registers (AXI4-Lite through ik64_axil_slave, OLED_ADDR_W = 12 address
 //     bits, a 4 KiB part of the 64 KiB window slot; offsets, bits and the
 //     geometry are c64_pkg OLED_*). Undefined offsets read 0 and ignore
 //     writes. Register writes need a full-word strobe (wstrb = 4'hF, RTLNet
@@ -267,7 +267,7 @@ module c64_oled #(
   // ---------------------------------------------------------------------------
   // AXI4-Lite to register strobes; read data is due one clock after reg_rd_en.
   // ---------------------------------------------------------------------------
-  rtlnet_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
+  ik64_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
     .s_axi_aclk    (cpu_clk),
     .s_axi_aresetn (cpu_resetn),
     .s_axi_awaddr  (s_axi_awaddr),
@@ -296,7 +296,7 @@ module c64_oled #(
   );
 
   // ---------------------------------------------------------------------------
-  // Write tap. rtlnet_axil_slave drops partial writes, but the framebuffer
+  // Write tap. ik64_axil_slave drops partial writes, but the framebuffer
   // needs wstrb, so this core captures the write itself in the clock where
   // both channels handshake (the master holds address, data and strobe stable
   // until then) and applies it one clock later. reg_wr_* are not used.

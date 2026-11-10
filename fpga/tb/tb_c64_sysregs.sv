@@ -24,7 +24,7 @@
 
 module tb_c64_sysregs;
 
-  import rtlnet_tb_pkg::*;
+  import ik64_tb_pkg::*;
   import c64_pkg::*;
 
   localparam int          AW           = REG_ADDR_W;
@@ -39,7 +39,7 @@ module tb_c64_sysregs;
 
   always #5.0 cpu_clk = ~cpu_clk;           // 100 MHz
 
-  rtlnet_reset_sync u_rst (.clk(cpu_clk), .arstn(arstn), .resetn(cpu_resetn));
+  ik64_reset_sync u_rst (.clk(cpu_clk), .arstn(arstn), .resetn(cpu_resetn));
 
   logic [CLK_STATUS_W-1:0] clk_status = '0;
   logic [7:0]              led_port [2];
@@ -68,7 +68,7 @@ module tb_c64_sysregs;
   genvar gi;
   generate
     for (gi = 0; gi < 2; gi++) begin : g_core
-      rtlnet_tb_axil_master #(.ADDR_W(AW)) u_mst (
+      ik64_tb_axil_master #(.ADDR_W(AW)) u_mst (
         .aclk(cpu_clk), .awaddr(awaddr[gi]), .awvalid(awvalid[gi]), .awready(awready[gi]), .wdata(wdata[gi]),
         .wstrb(wstrb[gi]), .wvalid(wvalid[gi]), .wready(wready[gi]), .bresp(bresp[gi]), .bvalid(bvalid[gi]),
         .bready(bready[gi]), .araddr(araddr[gi]), .arvalid(arvalid[gi]), .arready(arready[gi]), .rdata(rdata[gi]),

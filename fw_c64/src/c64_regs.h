@@ -35,7 +35,6 @@
 #define C64_WIN1_SYS_OFS               (0x00000000u)
 #define C64_WIN1_MAC_OFS               (0x00001000u)
 #define C64_WIN1_MDIO_OFS              (0x00002000u)
-#define C64_WIN1_ARB_OFS               (0x00004000u)
 #define C64_WIN1_PROT_OFS              (0x00010000u)
 #define C64_WIN1_SLOT_SIZE             (0x00001000u)
 #define C64_WIN1_PROT_SIZE             (0x00010000u)

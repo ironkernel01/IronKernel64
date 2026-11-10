@@ -1,6 +1,6 @@
 # ik64_net_core: network core netlist
 
-Revision 11-09-2026
+Revision 11-10-2026
 
 `ik64_net_core` is the Ethernet network core of IronKernel 64: an RGMII MAC with its pin layer, the PHY
 management (MDIO) core, and a protocol wrapper with ARP, ICMP, DHCP and iperf leaves and a CPU path
@@ -8,9 +8,16 @@ management (MDIO) core, and a protocol wrapper with ARP, ICMP, DHCP and iperf le
 readable port stub, `ik64_net_core_stub.sv`, and this document. The RTL behind the netlist is not part of
 the distribution.
 
+**The netlist is name-scrambled, not encrypted.** It opens in any Vivado 2026.1 or newer without a key. Its
+hierarchy is flattened and every cell and net carries an opaque name (`c_<n>`, `n_<n>`, `m_<n>`); the RTL
+file names, line numbers and register names that synthesis stores on cells and nets are removed. The ports
+keep their names. An outsider sees the device primitives (LUTs, flip-flops, block RAM, DSP, IDELAY, IDDR,
+ODDR) and the wiring between them. An IEEE-1735 encrypted checkpoint with the same ports may replace this
+file later; the top level is unaffected (section 7).
+
 | File | Content |
 |---|---|
-| `ik64_net_core.dcp` | Vivado 2026.1 design checkpoint, out-of-context synthesis for `xc7a200tsbg484-1`, IEEE-1735 encrypted sources, constraints inside. |
+| `ik64_net_core.dcp` | Vivado 2026.1 design checkpoint, out-of-context synthesis for `xc7a200tsbg484-1`, flattened, cell and net names scrambled, constraints inside. |
 | `ik64_net_core_stub.sv` | Black-box declaration of `ik64_net_core` (ports, widths, directions). |
 | `ik64_net_core.md` | This interface description. |
 
@@ -174,11 +181,15 @@ The classifier and checksum offload windows are programmed by the CPU-path drive
 The checkpoint carries, scoped to the core:
 
 - the IODELAY group `ik64_rgmii` on the five receive IDELAYE2 cells and the IDELAYCTRL;
-- the generated clock `rgmii_txc` on the TXC output register, 1:1 from `clk125_90`;
 - every clock-domain crossing of the core: false paths to the first stage of each synchronizer chain and
   to the asynchronous reset pins, maximum delay and bus skew of one source period on each Gray-coded
   counter, maximum delay of one destination period on each held request and response bundle, and the
   matching `report_cdc` waivers.
+
+The constraints name their cells by the scrambled names and their clocks by the port they enter
+(`get_clocks -of_objects [get_ports cpu_clk]`), so they apply under whatever clock names the top derives.
+The forwarded clock `rgmii_txc` is not in the checkpoint: it belongs on the `eth_txck` pad, which only the
+top can name (section 4.2).
 
 The crossing constraints assume these clock periods: `clk125` and `clk125_90` 8 ns, `clk200` 5 ns,
 `axis_clk` 16 ns, `cpu_clk` 10 ns, `sid_clk` 20 ns, `eth_rxck` 8 ns.
@@ -188,6 +199,10 @@ The crossing constraints assume these clock periods: `clk125` and `clk125_90` 8 
 `fpga/constraints/ik64_rgmii.xdc` holds the pin-level timing:
 
 - `create_clock` 8 ns on `eth_rxck` (`rgmii_rxc`) and the virtual clock `rgmii_rxc_v`;
+- the generated clock `rgmii_txc` on the `eth_txck` pad, sourced at the clock pin of the one ODDR that
+  `clk125_90` drives, 1:1. It is rooted on the pad so that the output buffer is in the clock path as it is
+  in the data paths; a clock rooted on the ODDR output leaves about 1.5 ns of buffer delay out and reports
+  a false setup violation of that size;
 - input delays on `eth_rxd` and `eth_rxctl` (maximum -1.2 ns, minimum -2.8 ns, both edges), with the
   same-edge capture multicycle and false paths between `rgmii_rxc_v` and `rgmii_rxc`;
 - output delays on `eth_txd` and `eth_txctl` against `rgmii_txc` (+1.0 and -1.0 ns, both edges);
@@ -213,7 +228,7 @@ the top supplies `clk125`, `clk125_90`, `clk200`, `axis_clk`, `cpu_clk` and `sid
 
 | Resource | Used | Available |
 |---|---|---|
-| Slice LUTs | 13,280 | 134,600 |
+| Slice LUTs | 13,213 | 134,600 |
 | Slice registers | 21,698 | 269,200 |
 | Block RAM tiles | 53.5 | 365 |
 | DSP48E1 | 2 | 740 |
@@ -222,9 +237,10 @@ the top supplies `clk125`, `clk125_90`, `clk200`, `axis_clk`, `cpu_clk` and `sid
 
 ## 6. Tool version
 
-The checkpoint is created and read with Vivado 2026.1. The encryption key is the AMD public key
-`xilinxt_2026.1-2030.x`, so Vivado releases 2026.1 up to 2030.x open the netlist; earlier releases do not.
-The part is `xc7a200tsbg484-1`.
+The checkpoint is created and read with Vivado 2026.1; releases before 2026.1 do not open it. The part is
+`xc7a200tsbg484-1`. The checkpoint is not encrypted. A checkpoint encrypted with the AMD public key
+`xilinxt_2026.1-2030.x` (Vivado 2026.1 up to 2030.x open it) can replace this file without a change to the
+top: the ports, the clock requirements of section 4 and the register maps stay the same.
 
 ## 7. Rebuilding the netlist
 
@@ -236,10 +252,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ironkernel/build_netcore.ps1
 ```
 
 `setup_ironkernel.py` installs the private `ironkernel/` repository and the pinned source trees. The build
-script encrypts every source file with Vivado's `encrypt` command and the AMD public key (the command
-needs a Vivado license that includes IEEE-1735 encryption), synthesizes the core out of context, applies
-the constraints of section 4.1, and writes `ik64_net_core.dcp` and `ik64_net_core_stub.sv` to this folder.
-Without access to the sources, the committed netlist is used as it is.
+script synthesizes the core out of context with full flattening, records the crossing constraints of
+section 4.1, gives every cell and net an opaque name, rewrites the constraints with the new names, exports
+the netlist to EDIF and reads it back (which drops the RTL file names and line numbers), and writes
+`ik64_net_core.dcp` and `ik64_net_core_stub.sv` to this folder. `ironkernel/verify_netcore.tcl` shows what
+an outsider sees in the result. With the `-Encrypt` option the script instead encrypts every source file with
+Vivado's `encrypt` command and the AMD public key (the command needs a Vivado license that includes IEEE-1735
+encryption) and keeps the hierarchy. Without access to the sources, the committed netlist is used as it is.
 
 ## 8. License
 

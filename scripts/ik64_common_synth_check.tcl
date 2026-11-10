@@ -6,7 +6,7 @@
 #   (cell names the script matches, instance and crossing counts, create_waiver).
 #   Optionally generates the DDR3 path IP (ik64_ddr_cc, ik64_ddr_mig).
 # Usage (through the Vivado slot launcher):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File third_party/rtlnet/scripts/rtlnet_vivado.ps1 `
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ik64_vivado.ps1 `
 #     -Tcl scripts/ik64_common_synth_check.tcl -Log .sim/synth/ik64_common.log -TclArgs [ip]
 #   `ip` also creates the two DDR3 path IPs in an in-memory project (a few minutes).
 # Revision: 11-09-2026

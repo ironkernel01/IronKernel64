@@ -2,57 +2,6 @@
   "comment": "Pinned third-party sources for IronKernel 64. tools/setup_third_party.py fetches each entry at its commit into third_party/<name>/ (gitignored), checks tree_sha256 and writes SOURCE.txt from tools/third_party/<name>.SOURCE.txt. Bump a version: change commit, run setup with --update-hashes, review the diff, update the SOURCE.txt note and README credits.",
   "entries": [
     {
-      "name": "rtlnet",
-      "url": "https://github.com/ironkernel01/RTLnet.git",
-      "sibling": "RTLNet",
-      "commit": "f8435ad67ded7519de3df5a0ec28a18da04314b8",
-      "license": "GPL (IronKernel RTLNet)",
-      "include": [
-        "cores/rtlnet_common/",
-        "cores/rtlnet_axi_cdc/",
-        "cores/rtlnet_axi_arbiter/",
-        "cores/rtlnet_ddr/",
-        "scripts/rtlnet_constrain_cdc.tcl",
-        "scripts/rtlnet_regression.ps1",
-        "scripts/rtlnet_run_sim.ps1",
-        "scripts/rtlnet_synth_check.tcl",
-        "scripts/rtlnet_tools.ps1",
-        "scripts/rtlnet_vivado.ps1",
-        "cores/rtlnet_eth_mac/",
-        "cores/rtlnet_mdio/",
-        "cores/rtlnet_eth_protocol/",
-        "cores/rtlnet_classifier/",
-        "cores/rtlnet_tcp_offload/",
-        "cores/rtlnet_arp/",
-        "cores/rtlnet_icmp/",
-        "cores/rtlnet_dhcp/",
-        "cores/rtlnet_iperf/",
-        "cores/rtlnet_udp_socket/",
-        "boards/nexys_video/constraints/rtlnet_nexys_video_rgmii.xdc",
-        "boards/nexys_video/constraints/rtlnet_nexys_video.xdc",
-        "boards/nexys_video/hdl/rtlnet_nexys_video_top.sv",
-        "microblaze/firmware/src/"
-      ],
-      "tree_sha256": "4738c833212ee4f3914a5f6f79536a74598dbd1ae6865bdb1e210c9a1dcfac47"
-    },
-    {
-      "name": "rtlnet-board",
-      "url": "https://github.com/ironkernel01/RTLnet.git",
-      "sibling": "RTLNet",
-      "commit": "f8435ad67ded7519de3df5a0ec28a18da04314b8",
-      "license": "GPL (IronKernel RTLNet)",
-      "include": [
-        "scripts/rtlnet_board_lock.ps1",
-        "scripts/rtlnet_board.ps1",
-        "boards/nexys_video/scripts/program.ps1",
-        "boards/nexys_video/scripts/program.tcl",
-        "boards/nexys_video/scripts/jtag_load_elf.ps1",
-        "boards/nexys_video/scripts/jtag_load_elf.tcl",
-        "boards/nexys_video/scripts/merge_elf.ps1"
-      ],
-      "tree_sha256": "6046ab4e79c49613edf12d00e3a747064347edf283d8e4fee35b3c1cefc23f12"
-    },
-    {
       "name": "libsmb2",
       "url": "https://github.com/sahlberg/libsmb2.git",
       "commit": "a52c1571a1ff223bde5bb3df9fec7af5ce3855d4",

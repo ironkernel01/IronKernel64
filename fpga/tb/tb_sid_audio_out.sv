@@ -43,7 +43,7 @@
 
 module tb_sid_audio_out;
 
-  import rtlnet_tb_pkg::*;
+  import ik64_tb_pkg::*;
   import c64_pkg::*;
 
   localparam int  AW            = REG_ADDR_W;
@@ -75,8 +75,8 @@ module tb_sid_audio_out;
   always #(T_CPU_HALF) cpu_clk = ~cpu_clk;
   always #(T_AUD_HALF) aud_clk = ~aud_clk;
 
-  rtlnet_reset_sync u_rst_cpu (.clk(cpu_clk), .arstn(arstn), .resetn(cpu_resetn));
-  rtlnet_reset_sync u_rst_aud (.clk(aud_clk), .arstn(arstn), .resetn(aud_resetn));
+  ik64_reset_sync u_rst_cpu (.clk(cpu_clk), .arstn(arstn), .resetn(cpu_resetn));
+  ik64_reset_sync u_rst_aud (.clk(aud_clk), .arstn(arstn), .resetn(aud_resetn));
 
   logic [AW-1:0] awaddr, araddr;
   logic [31:0]   wdata, rdata;
@@ -90,7 +90,7 @@ module tb_sid_audio_out;
   logic          aud_lrclk_q;
   logic          aud_sdata_q;
 
-  rtlnet_tb_axil_master #(.ADDR_W(AW)) u_mst (
+  ik64_tb_axil_master #(.ADDR_W(AW)) u_mst (
     .aclk(cpu_clk), .awaddr(awaddr), .awvalid(awvalid), .awready(awready), .wdata(wdata), .wstrb(wstrb),
     .wvalid(wvalid), .wready(wready), .bresp(bresp), .bvalid(bvalid), .bready(bready), .araddr(araddr),
     .arvalid(arvalid), .arready(arready), .rdata(rdata), .rresp(rresp), .rvalid(rvalid), .rready(rready));

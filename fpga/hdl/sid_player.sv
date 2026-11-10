@@ -8,7 +8,7 @@
 //   reads OSC3/ENV3 back, and turns the core's output into a 48 kHz mono
 //   sample stream for sid_audio_out.
 // Overview:
-//   * Registers (AXI4-Lite through rtlnet_axil_slave, REG_ADDR_W-bit address;
+//   * Registers (AXI4-Lite through ik64_axil_slave, REG_ADDR_W-bit address;
 //     offsets and bits are c64_pkg SID_*). Undefined offsets read 0 and ignore
 //     writes.
 //       SID_CTRL    RW [RUN] phi2 and the replay run (0: phi2 and the 48 kHz
@@ -205,7 +205,7 @@ module sid_player #(
   // ---------------------------------------------------------------------------
   // AXI4-Lite to register strobes; read data is due one clock after reg_rd_en.
   // ---------------------------------------------------------------------------
-  rtlnet_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
+  ik64_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
     .s_axi_aclk    (cpu_clk),
     .s_axi_aresetn (cpu_resetn),
     .s_axi_awaddr  (s_axi_awaddr),

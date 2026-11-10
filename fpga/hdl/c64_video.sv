@@ -5,7 +5,7 @@
 //   pages, a 256 x 24-bit palette, CEA-861 1280x720p60 timing with 3x
 //   scaling and a 64-pixel black pillarbox, and the DVI TMDS encoders.
 // Overview:
-//   * Register file (cpu_clk, AXI4-Lite through rtlnet_axil_slave, map in
+//   * Register file (cpu_clk, AXI4-Lite through ik64_axil_slave, map in
 //     c64_pkg):
 //       VID_CTRL    RW  bit ENABLE (0: black picture, timing keeps running),
 //                       bit PAGE (requested page), bit IRQ_EN.
@@ -18,7 +18,7 @@
 //   * Framebuffer: FB_WORDS x 32-bit true dual-port block RAM. Page p, pixel
 //     (x, y) is byte p*FB_PAGE_BYTES + y*FB_WIDTH + x; byte 4k+b of the page
 //     is word k, bits [8b+7:8b] (little endian, as the RISC-V CPU stores it).
-//     xpm_memory_tdpram is used rather than rtlnet_ram_core because port A
+//     xpm_memory_tdpram is used rather than ik64_ram_core because port A
 //     needs per-byte write enables and a read port of its own (AXI BRAM
 //     controller), and port B a second read port in another clock: the
 //     RTLNet RAM is a simple dual-port RAM with one full-word write port.
@@ -58,16 +58,16 @@
 //     select) -> S2 palette entry -> S3 vid_rgb/vid_de/vid_hsync/vid_vsync
 //     registers (syncs and de delayed with the data) -> dvi_tx (3 more
 //     clocks) -> tmds_ch0/1/2/clk.
-//   * Page flip: VID_CTRL.PAGE crosses to pix_clk as a level (rtlnet_sync)
+//   * Page flip: VID_CTRL.PAGE crosses to pix_clk as a level (ik64_sync)
 //     and is latched into display_page at the start of vertical blanking
 //     (h = 0, v = VID_V_ACTIVE). The first fetch of the next frame (line
 //     VID_V_TOTAL-1) uses it, so a flip never tears a frame. display_page
-//     crosses back (rtlnet_sync) as VID_STATUS.PAGE.
+//     crosses back (ik64_sync) as VID_STATUS.PAGE.
 //   * Frame event: at the same pixel the frame counter increments and a
-//     one-clock event crosses to cpu_clk through rtlnet_pulse_sync (one event
+//     one-clock event crosses to cpu_clk through ik64_pulse_sync (one event
 //     per 16.7 ms frame, far wider than the pulse synchronizer's spacing
 //     limit) and sets VID_STATUS.VSYNC.
-//   * VID_FRAME and VID_LINE cross with rtlnet_gray_sync. The line counter
+//   * VID_FRAME and VID_LINE cross with ik64_gray_sync. The line counter
 //     wraps at VID_V_TOTAL (750), not at a power of two, so it is sent biased
 //     by LINE_GRAY_BIAS = 2**(LINE_W-1) - VID_V_TOTAL/2 (= 137): the values
 //     137..886 are the middle of the 10-bit reflected Gray code, where the
@@ -75,9 +75,9 @@
 //     step, the wrap included, changes one Gray bit. The cpu side subtracts
 //     the bias. The first step after pix_resetn (0 -> 137) is the one
 //     multi-bit step.
-//   * Enable: VID_CTRL.ENABLE crosses as a level (rtlnet_sync) and forces
+//   * Enable: VID_CTRL.ENABLE crosses as a level (ik64_sync) and forces
 //     vid_rgb to black at S3; de and the syncs keep running.
-//   * Palette: rtlnet_ram_core with independent clocks (a block RAM written
+//   * Palette: ik64_ram_core with independent clocks (a block RAM written
 //     on cpu_clk, read on pix_clk). The dual-clock RAM is the CDC; a write to
 //     the entry being displayed can corrupt that one pixel on that frame.
 //     The palette powers up all zero (black); firmware loads it.
@@ -90,7 +90,7 @@
 //   * pix_clk: 74.25 MHz pixel clock (pixel MMCM): timing, fetch, line buffer,
 //     palette read port, TMDS encoders.
 //   * cpu_resetn / pix_resetn: synchronous to their clocks, active low (from
-//     rtlnet_reset_sync instances in c64_top.sv).
+//     ik64_reset_sync instances in c64_top.sv).
 // -----------------------------------------------------------------------------
 module c64_video
   import c64_pkg::*;
@@ -308,7 +308,7 @@ module c64_video
 
   // AXI4-Lite to register strobes (one transaction at a time, read data due
   // one clock after reg_rd_en).
-  rtlnet_axil_slave #(
+  ik64_axil_slave #(
     .ADDR_W (REG_ADDR_W)
   ) u_axil (
     .s_axi_aclk    (cpu_clk),
@@ -401,7 +401,7 @@ module c64_video
   // ===========================================================================
 
   // CPU control levels into pix_clk: ENABLE and the requested PAGE.
-  rtlnet_sync #(
+  ik64_sync #(
     .WIDTH  (2),
     .STAGES (3)
   ) u_sync_ctrl_pix (
@@ -412,7 +412,7 @@ module c64_video
   );
 
   // Displayed page back into cpu_clk for VID_STATUS.PAGE.
-  rtlnet_sync #(
+  ik64_sync #(
     .WIDTH  (1),
     .STAGES (3)
   ) u_sync_page_cpu (
@@ -423,7 +423,7 @@ module c64_video
   );
 
   // Frame event (start of vertical blanking) into cpu_clk for VID_STATUS.VSYNC.
-  rtlnet_pulse_sync #(
+  ik64_pulse_sync #(
     .STAGES (3)
   ) u_sync_vsync (
     .src_clk    (pix_clk),
@@ -435,7 +435,7 @@ module c64_video
   );
 
   // Frame counter into cpu_clk (steps +1 per frame).
-  rtlnet_gray_sync #(
+  ik64_gray_sync #(
     .WIDTH  (FRAME_W),
     .STAGES (2)
   ) u_sync_frame (
@@ -448,7 +448,7 @@ module c64_video
   );
 
   // Biased line counter into cpu_clk: one Gray bit per step, wrap included.
-  rtlnet_gray_sync #(
+  ik64_gray_sync #(
     .WIDTH  (LINE_W),
     .STAGES (2)
   ) u_sync_line (
@@ -529,7 +529,7 @@ module c64_video
 
   // Palette, 256 x 24: written from the register file on cpu_clk, read by the
   // pixel pipeline on pix_clk (latency 1). The dual-clock RAM is the CDC.
-  rtlnet_ram_core #(
+  ik64_ram_core #(
     .RAM_STYLE    ("block"),
     .CLOCKING     ("INDEPENDENT"),
     .DATA_W       (RGB_W),
@@ -549,7 +549,7 @@ module c64_video
 
   // Line buffer, 96 x 32 (128-deep distributed RAM): written by the fetch,
   // read every pixel at the S0 lb_x word (latency 1).
-  rtlnet_ram_core #(
+  ik64_ram_core #(
     .RAM_STYLE    ("distributed"),
     .CLOCKING     ("COMMON"),
     .DATA_W       (WORD_W),

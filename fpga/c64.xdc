@@ -7,15 +7,13 @@
 # Overview:
 #   * Balls and I/O standards from the Digilent Nexys-Video-Master.xdc (Rev. A);
 #     port names keep the master-XDC names.
-#   * Derived from RTLNet boards/nexys_video/constraints/rtlnet_nexys_video.xdc
-#     (commit ea70c8558ec4ef1133d1e9adde1b278e106302e0); the DDR3 block is copied
-#     unchanged.
+#   * The DDR3 pin block is the Digilent Nexys Video MIG project's (fpga/ip/ik64_ddr_mig.prj).
 #   * One primary clock: sysclk 100 MHz on R4. Every MMCM output (cpu_clk,
 #     clk200, ddr_sys_clk, pix_clk, pix_clk_x5, aud_clk) and the DDR3
 #     controller's clocks are derived clocks Vivado creates from it; no clock
-#     groups are declared. Clock-domain crossings are bounded cell by cell by
-#     third_party/rtlnet/scripts/rtlnet_constrain_cdc.tcl, sourced by
-#     fpga/build_bitstream.tcl after synthesis.
+#     groups are declared. Clock-domain crossings of the ik64 blocks are bounded cell by
+#     cell by scripts/ik64_constrain_cdc.tcl, sourced by fpga/build_bitstream.tcl after
+#     synthesis; those of the network core are constrained inside its netlist.
 #   * Asynchronous board pins have no timing relationship to any internal
 #     clock and are false paths (list and reasons at the end).
 #   * HDMI TMDS pairs leave OSERDESE2 serializers directly; the sink recovers
@@ -24,17 +22,17 @@
 #     (MCLK) on aud_clk; their relative timing is fixed by the IOB placement,
 #     and the codec samples at 3.072 MHz BCLK (325 ns period), so they are
 #     false paths rather than output-delay constrained.
-#   * Ethernet: RGMII, MDIO and side-band pins copied from RTLNet
-#     rtlnet_nexys_video.xdc; the RGMII timing, IDELAY group and TXC generated
-#     clock are in third_party/rtlnet/boards/nexys_video/constraints/
-#     rtlnet_nexys_video_rgmii.xdc, which fpga/build_bitstream.tcl reads after
-#     synthesis (it names the u_mac/u_rgmii_io cells).
+#   * Ethernet: RGMII, MDIO and side-band pins (Digilent master XDC); the RGMII pin timing
+#     is fpga/constraints/ik64_rgmii.xdc, which fpga/build_bitstream.tcl reads after the
+#     network core netlist (u_net) is linked. The IDELAY group and the TXC generated clock
+#     are inside the netlist.
 #   * microSD (deferred, not in milestone 1): sd_cclk W19, sd_cmd W20,
 #     sd_d[0] V19, sd_d[3] U18, sd_cd T18, sd_reset V20 (bank 14, LVCMOS33).
 #     Not constrained until the SD backend exists.
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version.
-#   * 11-09-2026: Phase 4: RGMII, MDIO and eth_int_b pins (RTLNet), their false paths.
+#   * 11-09-2026: Phase 4: RGMII, MDIO and eth_int_b pins, their false paths.
+#   * 11-10-2026: release split: comments name the ik64 files; no constraint changed.
 # -----------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -111,7 +109,7 @@ set_property -dict { PACKAGE_PIN V22   IOSTANDARD LVCMOS33 } [get_ports { oled_v
 # ---------------------------------------------------------------------------
 # RTL8211E Ethernet PHY. RGMII and management on bank 13 (2.5 V); the PHY reset
 # on bank 34 (3.3 V), driven by the MDIO core, low until the firmware releases it.
-# Pins as RTLNet rtlnet_nexys_video.xdc (VERIFY against the board schematic).
+# Pins from the Digilent master XDC (VERIFY against the board schematic).
 # ---------------------------------------------------------------------------
 set_property -dict { PACKAGE_PIN V13   IOSTANDARD LVCMOS25 } [get_ports { eth_rxck }]
 set_property -dict { PACKAGE_PIN W10   IOSTANDARD LVCMOS25 } [get_ports { eth_rxctl }]
@@ -133,7 +131,7 @@ set_property -dict { PACKAGE_PIN U7    IOSTANDARD LVCMOS33 } [get_ports { eth_rs
 # ---------------------------------------------------------------------------
 # DDR3 SDRAM MT41K256M16 (Micron), banks 34 and 35, 1.5 V. Balls, I/O standards,
 # slew and input termination exactly as the MIG project
-# third_party/rtlnet/cores/rtlnet_ddr/ip/rtlnet_ddr_mig.prj generates them (the
+# fpga/ip/ik64_ddr_mig.prj generates them (the
 # generated IP constraints carry the same values plus the controller's PHY and
 # timing constraints). Bank 35 uses the internal VREF (0.75 V); the clock pair
 # has no I/O buffer (the controller instantiates its own output primitives).
@@ -194,12 +192,12 @@ set_property -dict { PACKAGE_PIN P4  IOSTANDARD DIFF_SSTL15 SLEW FAST } [get_por
 
 # ---------------------------------------------------------------------------
 # Asynchronous board pins: no timing relationship to any internal clock.
-# Inputs: cpu_resetn only asserts rtlnet_reset_sync chains; uart_tx_in enters
+# Inputs: cpu_resetn only asserts ik64_reset_sync chains; uart_tx_in enters
 # the UART Lite receiver's oversampler; ps2_clk/ps2_data enter ps2_rx's
-# rtlnet_sync chains; hdmi_tx_hpd enters u_sync_status; scl/sda are the I2C
+# ik64_sync chains; hdmi_tx_hpd enters u_sync_status; scl/sda are the I2C
 # bus at 100 kHz, sampled by axi_iic_0's own synchronizers; eth_int_b is a slow
-# PHY side band synchronized in rtlnet_mdio, eth_mdio is the bit-banged
-# management data line (rtlnet_mdio).
+# PHY side band synchronized in the network core, eth_mdio is the bit-banged
+# management data line (MDIO core of the network core).
 # Outputs: register driven and slow (LEDs, UART transmit, PHY reset, MDC/MDIO,
 # I2C, the OLED SPI/power pins at 6.25 MHz), or the audio pins (see the header).
 # ---------------------------------------------------------------------------

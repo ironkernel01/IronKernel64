@@ -14,18 +14,19 @@ Overview:
     u_cpu/microblaze_0 (core 0), output build/fpga/c64_merged.bit, then programs
     that. -Out overrides the merged file name.
   * -MergeOnly (with -WithElf implied): merge only, no programming.
-  * Programming: third_party/rtlnet-board/boards/nexys_video/scripts/program.tcl
-    run through third_party/rtlnet/scripts/rtlnet_vivado.ps1 (the machine-wide
-    Vivado slot launcher), log build/fpga/program.log; the rtlnet_program:
-    lines are printed. RTLNet's own program.ps1 and merge_elf.ps1 are not
-    called: they expect the full RTLNet layout (scripts/rtlnet_vivado.ps1,
-    rtlnet_tools.ps1, boards/nexys_video/build) and merge_elf.ps1 checks for
-    one processor with a 512 KiB LMB, which this design does not have.
+  * Programming: scripts/ik64_program.tcl run through scripts/ik64_vivado.ps1
+    (the machine-wide Vivado slot launcher when ironkernel/src is present, a
+    plain Vivado launch otherwise), log build/fpga/program.log; the
+    ik64_program: lines are printed.
+  * Without ironkernel/src and without the shared-machine folders no board lock
+    is checked; with the folders but without ironkernel/src the script refuses
+    (exit 2).
 Usage:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/program.ps1 [-Bit <bit>] [-WithElf] [-Elf <elf>] [-MergeOnly]
 Exit codes: 0 PASS, 1 failure, 2 setup/lock error.
 Revision: 11-09-2026
   * 11-09-2026: initial version.
+  * 11-10-2026: own programming Tcl and Vivado launcher, no RTLNet source trees under third_party.
 -------------------------------------------------------------------------------
 #>
 param(
@@ -37,7 +38,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ik64_board_lib.ps1')
-Assert-Ik64ThirdParty
+Assert-Ik64Setup
 $Repo = $script:Ik64Repo
 $FpgaBuild = Join-Path $Repo 'build/fpga'
 if ($MergeOnly) { $WithElf = [switch]$true }
@@ -85,8 +86,8 @@ if ($WithElf) {
     if ($MergeOnly) { Write-Ik64Final 'PASS' "merged $Out (not programmed)"; exit 0 }
 }
 
-$tcl = Join-Path $Repo 'third_party/rtlnet-board/boards/nexys_video/scripts/program.tcl'
-$vivadoRunner = Join-Path $Repo 'third_party/rtlnet/scripts/rtlnet_vivado.ps1'
+$tcl = Join-Path $PSScriptRoot 'ik64_program.tcl'
+$vivadoRunner = Join-Path $PSScriptRoot 'ik64_vivado.ps1'
 foreach ($p in @($tcl, $vivadoRunner)) { if (-not (Test-Path -LiteralPath $p)) { Write-Ik64Final 'FAIL' "missing $p"; exit 2 } }
 $plog = Join-Path $FpgaBuild 'program.log'
 if (Test-Path -LiteralPath $plog) { Remove-Item -LiteralPath $plog -Force }
@@ -94,7 +95,7 @@ Write-Output "programming $toProgram"
 & $vivadoRunner -Tcl $tcl -Log $plog -TclArgs @(($toProgram -replace '\\', '/')) | Out-Null
 $rc = $LASTEXITCODE
 if (Test-Path -LiteralPath $plog) {
-    Get-Content -LiteralPath $plog | Where-Object { $_ -match '^rtlnet_program:' } | ForEach-Object { Write-Output $_ }
+    Get-Content -LiteralPath $plog | Where-Object { $_ -match '^ik64_program:' } | ForEach-Object { Write-Output $_ }
 }
 if ($rc -eq 0) { Write-Ik64Final 'PASS' "programmed $toProgram"; exit 0 }
 Write-Ik64Final 'FAIL' "program exit $rc (log $plog)"

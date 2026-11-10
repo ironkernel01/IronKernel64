@@ -4,7 +4,7 @@
 //   flags), clock/calibration status, this core's LED byte and a scratch
 //   word. c64_top instantiates one per MicroBlaze V core.
 // Overview:
-//   * Registers (AXI4-Lite through rtlnet_axil_slave, REG_ADDR_W-bit address;
+//   * Registers (AXI4-Lite through ik64_axil_slave, REG_ADDR_W-bit address;
 //     offsets and bits are c64_pkg SYS_*). Undefined offsets read 0 and
 //     ignore writes; writes to read-only registers are ignored.
 //       SYS_MAGIC       RO SYS_MAGIC_VALUE ("IK64")
@@ -17,7 +17,7 @@
 //       SYS_LED         RW [7:0] drives led (reset 0)
 //       SYS_SCRATCH     RW 32-bit scratch (reset 0)
 //   * clk_status contract: every bit is a level that c64_top has ALREADY
-//     brought into cpu_clk: an rtlnet_sync chain per bit for any signal born
+//     brought into cpu_clk: an ik64_sync chain per bit for any signal born
 //     in another clock domain or at a pin (MMCM locked outputs, MIG
 //     init_calib_complete, HDMI HPD, Ethernet link). This module registers
 //     the bus once more and adds no synchronizer; the bits are independent
@@ -97,7 +97,7 @@ module c64_sysregs #(
   // ---------------------------------------------------------------------------
   // AXI4-Lite to register strobes; read data is due one clock after reg_rd_en.
   // ---------------------------------------------------------------------------
-  rtlnet_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
+  ik64_axil_slave #(.ADDR_W(ADDR_W)) u_axil (
     .s_axi_aclk    (cpu_clk),
     .s_axi_aresetn (cpu_resetn),
     .s_axi_awaddr  (s_axi_awaddr),

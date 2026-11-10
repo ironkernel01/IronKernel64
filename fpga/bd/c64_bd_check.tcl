@@ -7,7 +7,7 @@
 #   address map that c64_top.sv and the firmware headers must match.
 # Overview:
 #   * Usage (through the Vivado slot wrapper):
-#       powershell -NoProfile -ExecutionPolicy Bypass -File third_party/rtlnet/scripts/rtlnet_vivado.ps1 `
+#       powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ik64_vivado.ps1 `
 #         -Tcl <repo>/fpga/bd/c64_bd_check.tcl -Log <repo>/build/bd_check/bd_check.log
 #   * Outputs in build/bd_check: c64_cpu_ports.txt (the port list of the
 #     generated c64_cpu module) and c64_cpu_addr.txt (every address segment).

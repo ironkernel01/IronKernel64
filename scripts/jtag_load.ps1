@@ -9,7 +9,7 @@ Overview:
     launch.
   * Defaults: -Core 0 with build/fw_c64/c64.elf, -Core 1 with
     build/fw_1541/fw_1541.elf. xsdb from the Vitis of the install located by
-    third_party/rtlnet/scripts/rtlnet_tools.ps1, running
+    scripts/ik64_tools.ps1 (Resolve-Ik64Xilinx), running
     scripts/ik64_jtag_load.tcl <elf> <core>. The script prefers a hw_server
     target named for microblaze_<core> and falls back to the Nth "Hart*" target
     (both cores sit behind the 2-port mdm); the selection is unverified on
@@ -19,17 +19,18 @@ Overview:
     (core 1 window 0x44A00000) before the download.
   * -DryRun: prints the xsdb command sequence the load would run, using plain
     tclsh: no hw_server, no xsdb, no connect, no board lock needed. Exits 0.
-  * RTLNet's jtag_load_elf.ps1/.tcl are not called: they need COM3 and the
-    RTLNet "rtlnet>" CLI prompt, read RTLNet's CLK_STATUS register at
-    0x44A00020, select only the first hart, and depend on
-    scripts/rtlnet_tools.ps1 beside them. Their download-verify method is kept
-    in ik64_jtag_load.tcl.
+  * The download-verify method of the earlier RTLNet loader is kept in
+    ik64_jtag_load.tcl; this loader needs no COM port and no CLI prompt.
+  * Without ironkernel/src and without the shared-machine folders no board lock
+    is checked (nobody to share with); with the folders but without
+    ironkernel/src the script refuses (exit 2).
   * Output lines "ik64_jtag:" from xsdb are printed.
 Usage:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/jtag_load.ps1 [-Elf <elf>] [-Core 0|1] [-DryRun]
 Exit codes: 0 PASS, 1 failure, 2 setup/lock error.
 Revision: 11-09-2026
   * 11-09-2026: initial version.
+  * 11-10-2026: tool paths from ik64_tools.ps1; coordination guard.
   * 11-09-2026: core 1 DDR3 image support (default ELF, calibration wait in the
     Tcl), -DryRun.
 -------------------------------------------------------------------------------
@@ -64,14 +65,14 @@ if ($DryRun) {
 }
 
 . (Join-Path $PSScriptRoot 'ik64_board_lib.ps1')
-Assert-Ik64ThirdParty
+Assert-Ik64Setup
 Assert-Ik64LockHeld
 $Repo = $script:Ik64Repo
 if (-not $Elf) { $Elf = Join-Path $Repo $defaultElf }
 if (-not (Test-Path -LiteralPath $Elf)) { Write-Ik64Final 'FAIL' "missing $Elf"; exit 1 }
 $Elf = (Resolve-Path -LiteralPath $Elf).Path
 $xil = Get-Ik64Tools
-$xsdb = $xil.Vitis + '/bin/xsdb.bat'
+$xsdb = $xil.Xsdb
 if (-not (Test-Path -LiteralPath $xsdb)) { Write-Ik64Final 'FAIL' "no xsdb at $xsdb"; exit 1 }
 $ErrorActionPreference = 'Continue'
 $out = & $xsdb $tcl ($Elf -replace '\\', '/') $Core 2>&1 | Out-String
