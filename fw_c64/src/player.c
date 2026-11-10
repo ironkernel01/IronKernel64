@@ -13,6 +13,7 @@
 #include "audio_out.h"
 #include "c64_regs.h"
 #include "psid.h"
+#include "sid_envmodel.h"
 #include "sidbus.h"
 #include "sidbus_fabric.h"
 
@@ -34,6 +35,8 @@ static uint32_t g_t0;            /* CYCLE at the end of init */
 static uint32_t g_base;          /* base time of the next frame */
 static uint32_t g_resyncs;
 static uint32_t g_errors;
+static sid_envmodel_t g_env;     /* voice 1/2 envelope model (voice 3 comes from hardware ENV3) */
+static int      g_tap_set;
 
 /*
  * map_load -- psid_load status to the reason basic.c prints.
@@ -56,16 +59,24 @@ static basic_player_reason_t map_load(psid_status_t st)
         return BASIC_PLAYER_RSID;
     case PSID_ERR_PLAY_ZERO:
         return BASIC_PLAYER_NO_PLAY;
-    case PSID_ERR_CIA_SPEED:
-        return BASIC_PLAYER_CIA_SPEED;
     default:
         return BASIC_PLAYER_ERROR;
     }
 }
 
 /*
+ * player_sid_tap -- sidbus write observer: feed the envelope model.
+ * Returns: nothing.
+ */
+static void player_sid_tap(uint32_t stamp, uint8_t reg, uint8_t val)
+{
+    sid_envmodel_write(&g_env, stamp, reg, val);
+}
+
+/*
  * begin_song -- init one song and schedule its frames.
  * Steps:
+ *   0. Reset the envelope model to time 0 (psid_init restarts CYCLE at 0).
  *   1. psid_init (resets the SID and its time, runs the init call).
  *   2. t0 = CYCLE; the first frame is due one play period after it.
  * Returns: the psid_init status.
@@ -75,6 +86,7 @@ static psid_status_t begin_song(uint32_t song)
     psid_status_t st;
 
     g_playing = 0;
+    sid_envmodel_reset(&g_env, 0u);
     st = psid_init((uint16_t)song);
     if (st != PSID_OK) {
         return st;
@@ -102,7 +114,12 @@ static basic_player_reason_t player_start(const uint8_t *file, uint32_t len)
     uint32_t t0;
     uint32_t polls = 0u;
 
+    if (!g_tap_set) {
+        sidbus_fabric_set_tap(player_sid_tap);
+        g_tap_set = 1;
+    }
     sidbus_reset(SIDBUS_MODEL_6581);
+    sid_envmodel_reset(&g_env, 0u);
     audio_out_enable(0);
     audio_out_flush();
     audio_out_set_source(1);
@@ -182,6 +199,7 @@ static void player_service(void)
             g_errors++;
             g_playing = 0;
             sidbus_reset(SIDBUS_MODEL_6581);
+            sid_envmodel_reset(&g_env, 0u);
             return;
         }
         g_base += psid_play_period_cycles();
@@ -207,13 +225,23 @@ static uint32_t player_elapsed_ms(void)
 
 /*
  * player_voice_levels -- envelope per voice.
- * Returns: nothing; voice 3 from ENV3, voices 1 and 2 are 0 (not readable in hardware yet).
+ * Steps: advance the envelope model to the present CYCLE (it already stands at the latest
+ *   write stamp when that is ahead), then voices 1 and 2 from the model and voice 3 from the
+ *   hardware ENV3 (the fabric SID reads back only OSC3/ENV3).
+ * Returns: nothing; all 0 when not playing.
  */
 static void player_voice_levels(uint8_t level[BASIC_VOICES])
 {
-    level[0] = 0u;
-    level[1] = 0u;
-    level[2] = g_playing ? sidbus_fabric_env3() : 0u;
+    if (!g_playing) {
+        level[0] = 0u;
+        level[1] = 0u;
+        level[2] = 0u;
+        return;
+    }
+    sid_envmodel_advance(&g_env, sidbus_fabric_cycle());
+    level[0] = sid_envmodel_level(&g_env, 0u);
+    level[1] = sid_envmodel_level(&g_env, 1u);
+    level[2] = sidbus_fabric_env3();
 }
 
 /*
@@ -224,6 +252,7 @@ static void player_stop(void)
 {
     g_playing = 0;
     sidbus_reset(SIDBUS_MODEL_6581);
+    sid_envmodel_reset(&g_env, 0u);
     audio_out_enable(0);
     audio_out_flush();
     audio_out_set_source(0);

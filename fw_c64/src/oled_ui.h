@@ -11,14 +11,18 @@
  *     "DRIVE 8: NOT READY" (drive_ready callback, re-asked at most every OLED_UI_PING_MS),
  *     page 3 blank.
  *   - Now playing:
- *     page 0 marquee of "<NAME> - <AUTHOR> - <RELEASED> - ", one pixel per vsync frame. A text
- *       of up to 48 characters repeats with period 8 * length columns; a longer one is cut to
- *       61 characters plus " - " and a 49..63 character one is padded, giving the full
- *       512-column period. The scroll wraps at the period, so the loop is seamless.
- *     page 1 "SONG nn/mm  mm:ss", redrawn when the second changes.
- *     pages 2-3 rolling chart of ENV3 (0..255 -> 0..16 pixels, bar from the bottom), one
- *       column per frame at a moving write column; SCROLL2/3 follow so the newest column is
- *       at display column 127.
+ *     pages 0-1 double-height marquee (8x16 pixel characters, font_openroms), one column per
+ *       vsync frame, of "<NAME>  *  <AUTHOR>  *  <RELEASED>  *  SONG nn/mm  *  TIME mm:ss  *  "
+ *       (empty fields are left out). The text is longer than the 512-column frame buffer, so the
+ *       hardware scroll registers act as a ring: the 256 columns from the scroll offset are kept
+ *       drawn, and each frame draws the one column that enters that range (text column modulo
+ *       8 * length), so the loop is seamless at any text length. TIME changes every second
+ *       inside the running text: the text is rebuilt (same length) and the drawn range is
+ *       redrawn at the same scroll offset and text position, so the scroll neither jumps nor
+ *       restarts. Both pages use the same offset.
+ *     pages 2-3 three horizontal level bars (voice 1 top, voice 3 bottom), 4 pixel rows each at
+ *       rows 1-4, 6-9, 11-14, length 0..128 columns from the envelope level 0..255 (voice 3
+ *       from the hardware ENV3, voices 1 and 2 from the firmware envelope model).
  *   - oled_ui_poll() does nothing until the OLED block is present. It is called every main
  *     loop pass with the vsync counter; per-frame work runs once per counted frame (at most
  *     OLED_UI_MAX_CATCHUP frames after a stall).
@@ -33,8 +37,7 @@
 
 #define OLED_UI_PING_MS       (5000u)
 #define OLED_UI_MAX_CATCHUP   (4u)
-#define OLED_UI_CHART_PIXELS  (16u)
-#define OLED_UI_TEXT_MAX      (128u)   /* buffer bytes for the marquee text */
+#define OLED_UI_TEXT_MAX      (192u)   /* buffer bytes for the marquee text */
 
 /* player: voice/time/info source; drive_ready: returns 1 when the drive answers (may be NULL). */
 void oled_ui_init(const basic_player_ops_t *player, int (*drive_ready)(void));
@@ -44,8 +47,10 @@ void oled_ui_poll(int playing, uint32_t frame, uint32_t now_ms);
 
 /* Pure helpers (exposed for the host test). */
 uint32_t oled_ui_marquee_text(char *out, const char *name, const char *author, const char *released,
-                              uint32_t *period_cols);     /* returns the text length in chars */
-uint32_t oled_ui_chart_height(uint8_t env);                      /* 0..16 pixels */
-void     oled_ui_chart_bytes(uint32_t height, uint8_t *top, uint8_t *bottom);
+                              uint32_t song, uint32_t songs, uint32_t secs);   /* length in chars */
+void     oled_ui_double_column(uint8_t col, uint8_t *top, uint8_t *bottom);
+uint32_t oled_ui_bar_len(uint8_t level);                         /* 0..128 columns */
+void     oled_ui_bar_bytes(uint32_t col, const uint32_t len[BASIC_VOICES], uint8_t *top,
+                           uint8_t *bottom);
 
 #endif /* OLED_UI_H */

@@ -16,8 +16,9 @@
  *     current CYCLE (player_resyncs() counts it).
  *   - Audio: start() selects the fabric stream as the audio FIFO source and enables the output;
  *     the SID output reaches the codec without CPU involvement.
- *   - Voice levels: ENV3 only (read back from the SID); voices 1 and 2 report 0 until the
- *     fabric reads their envelopes.
+ *   - Voice levels: voice 3 is ENV3 read back from the SID; voices 1 and 2 come from the
+ *     firmware envelope model (sid_envmodel.h) fed by every SID write through the sidbus_fabric
+ *     write tap.
  *   - elapsed_ms counts from the end of the init call, derived from CYCLE (985,248 Hz).
  * Concurrency: core 0 main loop only.
  * Headers hold contracts and constants; per-function commentary lives in player.c.

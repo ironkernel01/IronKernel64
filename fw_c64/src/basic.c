@@ -1284,7 +1284,6 @@ static int cmd_run(void)
         break;
     case BASIC_PLAYER_BAD_HEADER: print_error("FILE TYPE MISMATCH"); return 0;
     case BASIC_PLAYER_RSID:       print_error("RSID NOT SUPPORTED"); return 0;
-    case BASIC_PLAYER_CIA_SPEED:  print_error("CIA SPEED NOT SUPPORTED"); return 0;
     case BASIC_PLAYER_NO_PLAY:    print_error("NO PLAY ADDRESS"); return 0;
     default:                      print_error("PLAYER"); return 0;
     }

@@ -163,6 +163,53 @@ int main(int argc, char **argv)
     check("clamp start", (uint32_t)start(img, len), PSID_OK);
     check("clamp min", psid_play_period_cycles(), PSID_PERIOD_MIN_CYCLES);
 
+    /* 7. Tune data over the KERNAL stubs ($EA31, $EA81..$EA86, as Trooper's $E8FF-$F802):
+     *    the tune owns that memory, the stub is not in effect, and init/play run. */
+    {
+        static uint8_t big[0x7Cu + 0x100u];
+        psid_info_t info;
+
+        memset(big, 0, sizeof(big));
+        memcpy(big, "PSID", 4);
+        big[5] = 2; big[7] = 0x7C;
+        big[8] = 0xEA; big[9] = 0x00;          /* load $EA00 */
+        big[0x0A] = 0xEA; big[0x0B] = 0x00;    /* init $EA00 */
+        big[0x0C] = 0xEA; big[0x0D] = 0x10;    /* play $EA10 */
+        big[0x0F] = 1; big[0x11] = 1;
+        big[0x76] = 0x00; big[0x77] = 0x04;    /* PAL */
+        memset(&big[0x7C], 0xEA, 0xA0u);       /* NOP fill over $EA00-$EA9F */
+        /* init $EA00: LDA #$55 STA $0200 RTS */
+        big[0x7C + 0x00] = 0xA9; big[0x7C + 0x01] = 0x55;
+        big[0x7C + 0x02] = 0x8D; big[0x7C + 0x03] = 0x00; big[0x7C + 0x04] = 0x02;
+        big[0x7C + 0x05] = 0x60;
+        /* play $EA10: INC $0200 RTS */
+        big[0x7C + 0x10] = 0xEE; big[0x7C + 0x11] = 0x00; big[0x7C + 0x12] = 0x02;
+        big[0x7C + 0x13] = 0x60;
+        big[0x7C + 0x31] = 0x77;               /* tune byte at $EA31 (first stub byte) */
+        big[0x7C + 0x81] = 0x88;               /* tune byte at $EA81 */
+        check("stub overlap range", (uint32_t)c64mem_check_range(0xEA00u, 0xA0u), C64MEM_RANGE_OK);
+        check("stub overlap load", (uint32_t)psid_load(big, 0x7Cu + 0xA0u, &info), PSID_OK);
+        check("stub overlap init", (uint32_t)psid_init(1u), PSID_OK);
+        check("stub owned by tune $EA31", c64mem_peek(0xEA31u), 0x77u);
+        check("stub owned by tune $EA81", c64mem_peek(0xEA81u), 0x88u);
+        check("stub overlap init ran", c64mem_peek(0x0200u), 0x55u);
+        check("stub overlap play", (uint32_t)psid_play_frame(), PSID_OK);
+        check("stub overlap play ran", c64mem_peek(0x0200u), 0x56u);
+        /* Without overlap the stub is still installed. */
+        len = build(img, 0u, 0x0004u, RTS_ONLY, 1u, RTS_ONLY, 1u);
+        check("plain start", (uint32_t)start(img, len), PSID_OK);
+        check("stub installed $EA31", c64mem_peek(0xEA31u), 0x4Cu);
+        check("stub installed $EA81", c64mem_peek(0xEA81u), 0x68u);
+        /* The one rejected case: data covering the return sentinel $FF40. */
+        big[8] = 0xFF; big[9] = 0x30;          /* load $FF30, 0xA0 bytes -> runs to $FFCF */
+        big[0x0A] = 0xFF; big[0x0B] = 0x30;
+        big[0x0C] = 0xFF; big[0x0D] = 0x30;
+        check("sentinel overlap rejected", (uint32_t)psid_load(big, 0x7Cu + 0xA0u, &info),
+              PSID_ERR_STUB_OVERLAP);
+        big[8] = 0xFF; big[9] = 0x41;          /* $FF41.. clear of the sentinel byte */
+        check("clear of sentinel ok", (uint32_t)psid_load(big, 0x7Cu + 0x10u, &info), PSID_OK);
+    }
+
     if (inject != 0) {
         check("injected failure", 1u, 2u);
     }

@@ -14,6 +14,8 @@
 #include "sidbus.h"
 #include "sidbus_fabric.h"
 
+#include <stddef.h> /* NULL */
+
 #include "c64_platform.h"
 #include "c64_regs.h"
 
@@ -29,6 +31,16 @@
 static uint32_t g_base;        /* time the next frame_begin latches */
 static uint32_t g_frame_base;  /* base of the current call */
 static uint32_t g_dropped;     /* writes not pushed: FIFO stayed full */
+static sidbus_fabric_tap_t g_tap;   /* optional write observer */
+
+/*
+ * sidbus_fabric_set_tap -- install (or with NULL remove) the write observer.
+ * Returns: nothing.
+ */
+void sidbus_fabric_set_tap(sidbus_fabric_tap_t tap)
+{
+    g_tap = tap;
+}
 
 /*
  * sidbus_reset -- silence the SID and restart its time.
@@ -64,6 +76,7 @@ void sidbus_frame_begin(void)
  *   1. Wait for FIFO room: at most SIDBUS_FABRIC_FULL_SPIN_MAX STATUS reads; still full: count
  *      the write as dropped and return (the hardware would drop it and flag OVERFLOW).
  *   2. WTIME = frame base + cycle; WDATA = reg << 8 | val.
+ *   3. The write tap (if any) sees the pushed write with its absolute stamp.
  * Returns: nothing.
  */
 void sidbus_write(uint32_t cycle, uint8_t reg, uint8_t val)
@@ -79,6 +92,9 @@ void sidbus_write(uint32_t cycle, uint8_t reg, uint8_t val)
     Xil_Out32(SID_REG(C64_SID_WTIME_OFS), g_frame_base + cycle);
     Xil_Out32(SID_REG(C64_SID_WDATA_OFS),
               ((uint32_t)(reg & SID_REG_FIELD_MASK) << C64_SID_WDATA_REG_LSB) | val);
+    if (g_tap != NULL) {
+        g_tap(g_frame_base + cycle, (uint8_t)(reg & SID_REG_FIELD_MASK), val);
+    }
 }
 
 /*

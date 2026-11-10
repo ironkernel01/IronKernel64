@@ -60,7 +60,6 @@ typedef enum
     BASIC_PLAYER_OK = 0,
     BASIC_PLAYER_BAD_HEADER,   /* not a valid PSID header */
     BASIC_PLAYER_RSID,         /* RSID (needs a full C64 environment) */
-    BASIC_PLAYER_CIA_SPEED,    /* CIA timer speed instead of VBI */
     BASIC_PLAYER_NO_PLAY,      /* play address 0 */
     BASIC_PLAYER_ERROR         /* anything else */
 } basic_player_reason_t;

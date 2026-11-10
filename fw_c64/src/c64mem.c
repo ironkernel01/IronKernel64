@@ -17,7 +17,7 @@
 #include <string.h> /* memset, memcpy */
 
 #define C64MEM_RASTER_BIT8      (0x80u)
-#define C64MEM_RESERVED_RANGES  (4u)
+#define C64MEM_RESERVED_RANGES  (1u)
 
 #if SIDBUS_FRAME_CYCLES != C64MEM_FRAME_CYCLES
 #error "sidbus.h and c64mem.h disagree on the PAL frame length"
@@ -32,12 +32,17 @@ typedef struct
     uint16_t last;
 } c64mem_span_t;
 
-/* Stub code, sentinel page and hardware vectors (see c64mem.h). */
+/*
+ * Spans a tune may not cover. Only the call-return sentinel qualifies: c64mem_call ends a
+ * call when the PC reaches C64MEM_SENTINEL, so tune code or data at that byte would be
+ * cut off or never reached and the RTS return path of init/play would break. The KERNAL
+ * stubs ($EA31, $EA81..$EA86, $FF48), the vectors $FFFA-$FFFF and $0314-$0317 are not on
+ * the return path (play calls are plain JSR-style calls; no interrupt is ever delivered),
+ * so a tune that covers them owns that memory: c64mem_reset installs the stubs and the
+ * tune data is copied over them afterwards (psid_init), which is what real players do.
+ */
 static const c64mem_span_t g_reserved[C64MEM_RESERVED_RANGES] = {
-    { C64MEM_STUB_EA31, C64MEM_STUB_EA31 + 2u },
-    { C64MEM_STUB_EA81, C64MEM_STUB_RTI },
-    { C64MEM_SENTINEL, C64MEM_SENTINEL + 0x0Fu },
-    { CPU6502_VEC_NMI, 0xFFFFu },
+    { C64MEM_SENTINEL, C64MEM_SENTINEL },
 };
 
 /* $EA31: JMP $EA81. */
@@ -230,7 +235,7 @@ void c64mem_poke(uint16_t addr, uint8_t value)
  * Steps:
  *   1. Empty or past $FFFF.
  *   2. Overlap with the I/O window.
- *   3. Overlap with any reserved stub/sentinel/vector span.
+ *   3. Overlap with the call-return sentinel byte (g_reserved).
  * Returns: C64MEM_RANGE_OK or the first failing class (c64mem_range_t).
  */
 c64mem_range_t c64mem_check_range(uint32_t addr, uint32_t len)

@@ -2,7 +2,7 @@
  * File: oled_host_test.c
  * Role: host unit test of fw_c64/src/oled.c and oled_ui.c on a fake OLED register file.
  * Build/run (MSYS2 UCRT64):
- *   gcc -std=c11 -Wall -Wextra -DOLED_HOST_TEST -Ifw_c64/src -Icommon tools/oled_host_test.c \
+ *   gcc -std=c11 -Wall -Wextra -Werror -DOLED_HOST_TEST -Ifw_c64/src -Icommon tools/oled_host_test.c \
  *       fw_c64/src/oled.c fw_c64/src/oled_ui.c fw_c64/src/font_openroms.c -o oled_host_test
  *   ./oled_host_test [--inject-fail]
  * Prints "TEST PASS: oled_host" or "TEST FAIL" (exit 0 / 1). --inject-fail corrupts one
@@ -63,7 +63,7 @@ static uint8_t lane(uint32_t page, uint32_t vcol)
 
 /* Fake player. */
 static uint32_t g_ms;
-static uint8_t  g_env;
+static uint8_t  g_lvl[BASIC_VOICES];
 static uint32_t g_song = 1u;
 static void f_info(basic_tune_info_t *i)
 {
@@ -75,7 +75,7 @@ static void f_info(basic_tune_info_t *i)
     i->start_song = g_song;
 }
 static uint32_t f_elapsed(void) { return g_ms; }
-static void f_levels(uint8_t l[BASIC_VOICES]) { l[0] = 0u; l[1] = 0u; l[2] = g_env; }
+static void f_levels(uint8_t l[BASIC_VOICES]) { l[0] = g_lvl[0]; l[1] = g_lvl[1]; l[2] = g_lvl[2]; }
 static basic_player_ops_t g_ops = { 0, f_info, 0, 0, f_elapsed, f_levels, 0 };
 static int g_drive;
 static int f_drive(void) { return g_drive; }
@@ -121,83 +121,155 @@ static void test_unaligned(void)
     CHECK(oled_put_text(0u, 508u, "AB", 0) == 4u, "clip at 512");
 }
 
-static void test_marquee(void)
+/* Expected double-height marquee column pair of text column pos (pos mod 8 * length). */
+static void expect_col(const char *text, uint32_t pos, uint8_t *top, uint8_t *bottom)
 {
-    char text[OLED_UI_TEXT_MAX];
-    uint32_t period;
-    uint32_t len;
-    char longs[40];
+    const uint32_t cols = (uint32_t)strlen(text) * 8u;
+    const uint32_t p = pos % cols;
+    const uint8_t *g = font_openroms_glyph(oled_ascii_to_screen(text[p / 8u]));
 
-    len = oled_ui_marquee_text(text, "AB", "CD", "1985", &period);
-    CHECK(strcmp(text, "AB - CD - 1985 - ") == 0 && len == 17u && period == 136u, "marquee short");
-    memset(longs, 'X', 32);
-    longs[32] = '\0';
-    len = oled_ui_marquee_text(text, longs, longs, longs, &period);
-    CHECK(len == 64u && period == 512u && strcmp(&text[61], " - ") == 0, "marquee truncated");
-    len = oled_ui_marquee_text(text, longs, "Y", "", &period);   /* 32+3+1+3+0+3 = 42 */
-    CHECK(len == 42u && period == 336u, "marquee 42");
-    len = oled_ui_marquee_text(text, longs, longs, "", &period); /* 73 -> cut */
-    CHECK(len == 64u && period == 512u, "marquee cut 73");
-    len = oled_ui_marquee_text(text, longs, "YYYYYYYYYYYY", "", &period); /* 32+3+12+3+3 = 53 */
-    CHECK(len == 64u && period == 512u && text[53] == ' ', "marquee padded");
-
-    /* Playing: wrap of the scroll at the period (period 136, text "AB - CD - 1985 - "). */
-    memset(g_fb, 0, sizeof(g_fb));
-    g_ms = 0u;
-    oled_ui_init(&g_ops, f_drive);
-    oled_ui_poll(1, 100u, 0u);
-    CHECK(g_scroll[0] == 0u, "scroll0 start");
-    for (uint32_t f = 1u; f <= 136u; f++) {
-        oled_ui_poll(1, 100u + f, 0u);
-        CHECK(g_scroll[0] == (f % 136u), "scroll0 wraps at period");
-    }
-    /* seamless: virtual column i equals column i + period */
-    for (uint32_t i = 0u; i + 136u < 512u; i++) {
-        CHECK(lane(0u, i) == lane(0u, i + 136u), "marquee repeat");
-    }
-    CHECK(lane(0u, 0u) == oled_glyph_column(font_openroms_glyph(1u), 0u, 0), "marquee first glyph 'A'");
+    oled_ui_double_column(oled_glyph_column(g, p % 8u, 0), top, bottom);
 }
 
-static void test_chart(void)
+/* The 256 drawn columns from the scroll offset show the text from text column s0. */
+static int window_matches(const char *text, uint32_t s0)
+{
+    for (uint32_t k = 0u; k < 256u; k++) {
+        uint8_t t;
+        uint8_t b;
+        const uint32_t v = (g_scroll[0] + k) & 511u;
+
+        expect_col(text, s0 + k, &t, &b);
+        if (lane(0u, v) != t || lane(1u, v) != b) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void test_double(void)
 {
     uint8_t t;
     uint8_t b;
 
-    CHECK(oled_ui_chart_height(0u) == 0u && oled_ui_chart_height(255u) == 16u &&
-          oled_ui_chart_height(128u) == 8u, "chart height");
-    oled_ui_chart_bytes(0u, &t, &b);
-    CHECK(t == 0u && b == 0u, "bytes h0");
-    oled_ui_chart_bytes(3u, &t, &b);
-    CHECK(t == 0u && b == 0xE0u, "bytes h3");
-    oled_ui_chart_bytes(8u, &t, &b);
-    CHECK(t == 0u && b == 0xFFu, "bytes h8");
-    oled_ui_chart_bytes(11u, &t, &b);
-    CHECK(t == 0xE0u && b == 0xFFu, "bytes h11");
-    oled_ui_chart_bytes(16u, &t, &b);
-    CHECK(t == 0xFFu && b == 0xFFu, "bytes h16");
+    oled_ui_double_column(0x01u, &t, &b);
+    CHECK(t == 0x03u && b == 0x00u, "double row 0");
+    oled_ui_double_column(0x10u, &t, &b);
+    CHECK(t == 0x00u && b == 0x03u, "double row 4");
+    oled_ui_double_column(0x81u, &t, &b);
+    CHECK(t == 0x03u && b == 0xC0u, "double rows 0 and 7");
+    oled_ui_double_column(0xFFu, &t, &b);
+    CHECK(t == 0xFFu && b == 0xFFu, "double full");
+    oled_ui_double_column(0x00u, &t, &b);
+    CHECK(t == 0x00u && b == 0x00u, "double empty");
+}
 
-    /* Stepping: two idle-to-playing runs; the newest column sits at display column 127. */
+static void test_marquee(void)
+{
+    char text[OLED_UI_TEXT_MAX];
+    char text2[OLED_UI_TEXT_MAX];
+    char longs[40];
+    uint32_t len;
+    uint32_t s0 = 0u;
+    uint32_t before;
+    const char *want = "AB  *  CD  *  1985  *  SONG 01/03  *  TIME 00:15  *  ";
+
+    len = oled_ui_marquee_text(text, "AB", "CD", "1985", 1u, 3u, 15u);
+    CHECK(strcmp(text, want) == 0 && len == strlen(want), "marquee composition");
+    len = oled_ui_marquee_text(text, "LIVIN' ON A PRAYER", "SAMI SEPPA (ROCK)", "2016 FINNISH GOLD", 1u, 1u, 15u);
+    CHECK(strcmp(text, "LIVIN' ON A PRAYER  *  SAMI SEPPA (ROCK)  *  2016 FINNISH GOLD  *  SONG 01/01  *  TIME 00:15  *  ") == 0,
+          "marquee example");
+    len = oled_ui_marquee_text(text, "AB", "", "", 12u, 120u, 754u);
+    CHECK(strcmp(text, "AB  *  SONG 12/120  *  TIME 12:34  *  ") == 0 && len == strlen(text), "marquee empty fields, 3 digits");
+    (void)oled_ui_marquee_text(text, "AB", "CD", "EF", 1u, 1u, 99999u);
+    CHECK(strstr(text, "TIME 99:59") != NULL, "marquee time clamp");
+    memset(longs, 'X', 32);
+    longs[32] = '\0';
+    len = oled_ui_marquee_text(text, longs, longs, longs, 1u, 1u, 0u);
+    CHECK(len < OLED_UI_TEXT_MAX && strstr(text, "SONG 01/01") != NULL && strstr(text, "TIME 00:00") != NULL,
+          "marquee 32-char fields fit");
+    (void)oled_ui_marquee_text(text, "AB", "CD", "1985", 1u, 3u, 0u);
+    (void)oled_ui_marquee_text(text2, "AB", "CD", "1985", 1u, 3u, 3599u);
+    CHECK(strlen(text) == strlen(text2), "time keeps the length");
+
+    /* Playing: the scroll advances one column per frame, wraps on the 512 ring, and the drawn
+     * window always shows the text at the matching text column (seamless over many wraps). */
     memset(g_fb, 0, sizeof(g_fb));
+    g_ms = 15000u;
+    g_song = 1u;
+    oled_ui_init(&g_ops, f_drive);
+    oled_ui_poll(1, 100u, 0u);
+    CHECK(g_scroll[0] == 0u && g_scroll[1] == 0u, "scroll start");
+    CHECK(window_matches(want, 0u), "window at start");
+    for (uint32_t f = 1u; f <= 1500u; f++) {
+        oled_ui_poll(1, 100u + f, 0u);
+        s0 = f;
+        CHECK(g_scroll[0] == (f % 512u) && g_scroll[1] == g_scroll[0], "scroll steps and wraps at 512");
+        if ((f % 61u) == 0u || f > 1490u) {
+            CHECK(window_matches(want, s0), "window follows the text");
+        }
+    }
+    CHECK(lane(2u, 0u) == 0u && lane(3u, 0u) == 0u, "bars idle at 0");
+
+    /* TIME ticks: same frame (no scroll step), the second changes. Offset and text position stay. */
+    before = g_scroll[0];
+    g_ms = 16000u;
+    oled_ui_poll(1, 100u + 1500u, 0u);
+    CHECK(g_scroll[0] == before, "time update keeps the scroll offset");
+    CHECK(window_matches("AB  *  CD  *  1985  *  SONG 01/03  *  TIME 00:16  *  ", s0), "time update redraws in place");
+    CHECK(!window_matches(want, s0), "old time is gone");
+    oled_ui_poll(1, 100u + 1501u, 0u);
+    CHECK(g_scroll[0] == ((before + 1u) & 511u), "scroll continues after the time update");
+    CHECK(window_matches("AB  *  CD  *  1985  *  SONG 01/03  *  TIME 00:16  *  ", s0 + 1u), "continues seamlessly");
+
+    /* Song change restarts the time but not the scroll. */
+    before = g_scroll[0];
+    g_song = 2u;
+    g_ms = 0u;
+    oled_ui_poll(1, 100u + 1501u, 0u);
+    CHECK(g_scroll[0] == before, "song change keeps the scroll offset");
+    CHECK(window_matches("AB  *  CD  *  1985  *  SONG 02/03  *  TIME 00:00  *  ", s0 + 1u), "song change text");
+}
+
+static void test_bars(void)
+{
+    uint32_t len[3];
+    uint8_t t;
+    uint8_t b;
+
+    CHECK(oled_ui_bar_len(0u) == 0u && oled_ui_bar_len(1u) == 1u && oled_ui_bar_len(255u) == 128u, "bar len");
+    len[0] = 1u; len[1] = 1u; len[2] = 1u;
+    oled_ui_bar_bytes(0u, len, &t, &b);
+    CHECK(t == 0xDEu && b == 0x7Bu, "bars all three: rows 1-4, 6-9, 11-14");
+    len[0] = 0u; len[1] = 5u; len[2] = 0u;
+    oled_ui_bar_bytes(4u, len, &t, &b);
+    CHECK(t == 0xC0u && b == 0x03u, "bar 2 only");
+    oled_ui_bar_bytes(5u, len, &t, &b);
+    CHECK(t == 0u && b == 0u, "past the bar end");
+
+    /* Playing screen: levels of the three voices reach the three bars. */
+    memset(g_fb, 0, sizeof(g_fb));
+    g_ms = 0u;
+    g_song = 1u;
+    g_lvl[0] = 0u; g_lvl[1] = 0u; g_lvl[2] = 0u;
     oled_ui_init(&g_ops, f_drive);
     oled_ui_poll(0, 1000u, 0u);
     oled_ui_poll(1, 1001u, 0u);
-    CHECK(g_scroll[2] == 384u && g_scroll[3] == 384u, "chart scroll initial");
-    g_env = 255u;
+    CHECK(g_scroll[2] == 0u && g_scroll[3] == 0u, "bar pages do not scroll");
+    g_lvl[0] = 255u; g_lvl[1] = 128u; g_lvl[2] = 1u;
     oled_ui_poll(1, 1002u, 0u);
-    CHECK(lane(2u, 0u) == 0xFFu && lane(3u, 0u) == 0xFFu, "chart column 0 full");
-    CHECK(g_scroll[2] == 385u, "scroll step");
-    CHECK(((127u + g_scroll[2]) & 511u) == 0u, "newest column at x=127");
-    g_env = 128u;
-    for (uint32_t f = 1003u; f < 1003u + 520u; f++) {
-        oled_ui_poll(1, f, 0u);
-        CHECK(((127u + g_scroll[2]) & 511u) == ((f - 1002u) & 511u), "newest column tracks write column");
-        CHECK(g_scroll[2] == g_scroll[3], "scroll2 == scroll3");
-    }
-    CHECK(lane(3u, 5u) == 0xFFu && lane(2u, 5u) == 0u, "chart h8");
+    CHECK(lane(2u, 0u) == 0xDEu && lane(3u, 0u) == 0x7Bu, "all bars at column 0");
+    CHECK(lane(2u, 127u) == 0x1Eu && lane(3u, 127u) == 0x00u, "voice 1 reaches column 127 only");
+    CHECK(lane(2u, 64u) == 0xDEu && lane(2u, 65u) == 0x1Eu, "voice 2 ends at column 65");
+    CHECK(lane(3u, 0u) == 0x7Bu && lane(3u, 1u) == 0x03u, "voice 3 one column");
+    g_lvl[0] = 0u; g_lvl[1] = 0u; g_lvl[2] = 0u;
+    oled_ui_poll(1, 1003u, 0u);
+    CHECK(lane(2u, 0u) == 0u && lane(3u, 0u) == 0u && lane(2u, 127u) == 0u, "bars fall back to 0");
+
     /* back to idle */
     g_drive = 1;
     oled_ui_poll(0, 2000u, 10u);
-    CHECK(g_scroll[0] == 0u && g_scroll[2] == 0u, "idle scrolls reset");
+    CHECK(g_scroll[0] == 0u && g_scroll[1] == 0u && g_scroll[2] == 0u, "idle scrolls reset");
     CHECK(lane(0u, 0u) == oled_glyph_column(font_openroms_glyph(oled_ascii_to_screen('I')), 0u, 0), "idle title");
 }
 
@@ -207,8 +279,9 @@ int main(int argc, char **argv)
     CHECK(oled_init() == 1 && (g_ctrl & 1u) == 1u, "init powers up");
     test_glyph();
     test_unaligned();
+    test_double();
     test_marquee();
-    test_chart();
+    test_bars();
     printf(g_fail ? "TEST FAIL\n" : "TEST PASS: oled_host\n");
     return g_fail ? 1 : 0;
 }

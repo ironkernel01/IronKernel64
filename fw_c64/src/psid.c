@@ -53,10 +53,9 @@ static const char *const g_status_text[] = {
     "PLAY ADDRESS 0 NOT SUPPORTED",
     "DATA PAST $FFFF",
     "DATA OVERLAPS I/O",
-    "DATA OVERLAPS KERNAL STUBS",
+    "DATA OVERLAPS RETURN SENTINEL",
     "NO TUNE LOADED",
     "SONG OUT OF RANGE",
-    "CIA SPEED NOT SUPPORTED",
     "TUNE NOT INITIALISED",
     "INIT DID NOT RETURN",
     "PLAY DID NOT RETURN",
@@ -209,7 +208,7 @@ int psid_song_is_vbi(const psid_info_t *info, uint16_t song)
  * Steps:
  *   1. Unpack the header (fills *info as far as it gets, so a reject can still show names).
  *   2. Reject RSID, bad versions, bad song counts or start song, MUS data, play = 0.
- *   3. Reject data past $FFFF, over the I/O window or over the c64mem stub areas.
+ *   3. Reject data past $FFFF, over the I/O window or over the call-return sentinel.
  * Returns: PSID_OK or the first reject reason (psid_status_t).
  */
 psid_status_t psid_parse(const uint8_t *image, uint32_t len, psid_info_t *info)

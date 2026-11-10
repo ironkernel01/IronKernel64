@@ -25,7 +25,8 @@
  *
  * Milestone-1 acceptance (psid_parse / psid_load / psid_init): PSID v1..v4,
  *   no MUS data, play address != 0, data inside $0000-$FFFF and clear of the
- *   I/O window $D000-$DFFF and the c64mem stub/sentinel areas. RSID files are recognised and
+ *   I/O window $D000-$DFFF and the call-return sentinel $FF40 (KERNAL stub areas such as
+ *   $EA31/$EA81 may be covered: the tune owns them). RSID files are recognised and
  *   rejected. The second/third SID addresses are reported and ignored. The SID
  *   model is 8580 when the flags say 8580 only, else 6581.
  *
@@ -91,10 +92,9 @@ typedef enum
     PSID_ERR_PLAY_ZERO,       /* play address 0 (init installs its own IRQ) */
     PSID_ERR_PAST_END,        /* data runs past $FFFF */
     PSID_ERR_IO_OVERLAP,      /* data overlaps $D000-$DFFF */
-    PSID_ERR_STUB_OVERLAP,    /* data overlaps the KERNAL stubs / sentinel / vectors */
+    PSID_ERR_STUB_OVERLAP,    /* data covers the call-return sentinel $FF40 */
     PSID_ERR_NOT_LOADED,      /* psid_init / psid_play_frame before a good psid_load */
     PSID_ERR_SONG_RANGE,      /* song not 1..songs */
-    PSID_ERR_CIA_SPEED,       /* unused: CIA timing is supported; kept for the status table */
     PSID_ERR_NOT_INITED,      /* psid_play_frame before a good psid_init */
     PSID_ERR_INIT_CAP,        /* init did not return within PSID_INIT_MAX_CYCLES */
     PSID_ERR_PLAY_CAP,        /* play did not return within C64MEM_PLAY_MAX_CYCLES */

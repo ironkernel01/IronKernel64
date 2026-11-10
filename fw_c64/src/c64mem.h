@@ -30,9 +30,11 @@
  *     everything else  reads/writes RAM.
  *
  * KERNAL stubs written by c64mem_reset. c64mem_check_range reports
- *   C64MEM_RANGE_STUB for $EA31-$EA33, $EA81-$EA86, $FF40-$FF4F and $FFFA-$FFFF;
- *   the RAM vectors $0314-$0317 may be overwritten by tune data (play calls do
- *   not go through them):
+ *   C64MEM_RANGE_STUB only for the sentinel byte $FF40 (the call-return path). Tune data
+ *   that covers the other stubs ($EA31, $EA81..$EA86, $FF48, vectors $FFFA-$FFFF, RAM
+ *   vectors $0314-$0317) simply replaces them: psid_init copies the data after
+ *   c64mem_reset, so the tune owns that memory and the stub is not in effect (play calls
+ *   do not go through any of them):
  *   $EA31  JMP $EA81                       (C64MEM_STUB_EA31)
  *   $EA81  PLA TAY PLA TAX PLA RTI         (C64MEM_STUB_EA81; $EA86 is the RTI)
  *   $FF40  JMP $FF40                       (C64MEM_SENTINEL; reset vector target)
@@ -45,8 +47,8 @@
  *   C64MEM_SENTINEL - 1, loads A, clears X/Y, sets P = U|I (D clear), sets PC,
  *   calls sidbus_frame_begin() and runs until the routine's RTS lands on
  *   C64MEM_SENTINEL or max_cycles are used. BRK stops the call
- *   (C64MEM_CALL_BRK). The sentinel lives in the stub page $FF40-$FF4F, which no
- *   accepted PSID image may occupy. Play calls use C64MEM_PLAY_MAX_CYCLES.
+ *   (C64MEM_CALL_BRK). No accepted PSID image
+ *   may cover the sentinel byte. Play calls use C64MEM_PLAY_MAX_CYCLES.
  *
  * Concurrency: core 0 main loop only.
  * Headers hold signatures, constants, types and contract prose; per-function
@@ -109,7 +111,7 @@ typedef enum
     C64MEM_RANGE_EMPTY    = 1,  /* zero length */
     C64MEM_RANGE_PAST_END = 2,  /* runs past $FFFF */
     C64MEM_RANGE_IO       = 3,  /* overlaps $D000-$DFFF */
-    C64MEM_RANGE_STUB     = 4   /* overlaps a KERNAL stub, the sentinel or a vector */
+    C64MEM_RANGE_STUB     = 4   /* covers the call-return sentinel byte */
 } c64mem_range_t;
 
 void c64mem_reset(void);

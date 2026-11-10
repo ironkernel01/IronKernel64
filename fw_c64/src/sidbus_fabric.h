@@ -23,6 +23,12 @@
 #define SIDBUS_FABRIC_FULL_SPIN_MAX  (200000u)  /* STATUS polls waiting for FIFO room per write */
 #define SIDBUS_FABRIC_RESET_HOLD_US  (200u)     /* CTRL.RESET held: about 200 phi2 cycles */
 
+/* Write tap: called for every write that reached the FIFO, with its absolute phi2 stamp
+ * (frame base + cycle offset) and register 0..31. NULL (the default) disables it. The player
+ * feeds its envelope model from it. */
+typedef void (*sidbus_fabric_tap_t)(uint32_t stamp, uint8_t reg, uint8_t val);
+void     sidbus_fabric_set_tap(sidbus_fabric_tap_t tap);
+
 uint32_t sidbus_fabric_cycle(void);
 void     sidbus_fabric_set_base(uint32_t cycle);
 uint8_t  sidbus_fabric_env3(void);
