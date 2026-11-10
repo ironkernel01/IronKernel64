@@ -20,6 +20,11 @@ Glyph order (no remapping needed): the chargen layout is C64 screen-code order.
   glyphs 384..511  the same set in reverse video
 The script checks the reverse halves (glyph n+128 == NOT glyph n) and reports any difference.
 
+IK64_DEVIATION (11-10-2026, owner request): screen code $1F (PETSCII $5F, typed as '_') is drawn as
+an underscore instead of the C64 left arrow, in both sets and their reverse halves, so file names
+such as FUR_ELISE read as typed on the HDMI screen and the OLED. The --check-rom comparison runs
+on the unmodified upstream glyphs, before the override.
+
 Usage (run isolated, no site packages needed):
   python -I tools/font2c.py --png third_party/open-roms/8x8font.png \
       --check-rom third_party/open-roms/chargen_openroms.rom \
@@ -37,6 +42,9 @@ ROWS = 8
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 THRESHOLD = 0x7F
 REVERSE_SPAN = 128
+UNDERSCORE_CODE = 0x1F                       # screen code of PETSCII $5F (left arrow on a C64)
+UNDERSCORE_GLYPH = bytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF])   # rows 0..7, bottom row set
+OVERRIDES = {UNDERSCORE_CODE: UNDERSCORE_GLYPH, UNDERSCORE_CODE + 256: UNDERSCORE_GLYPH}
 
 
 class FontError(Exception):
@@ -252,6 +260,19 @@ const uint8_t *font_openroms_glyph(uint32_t index)
 """
 
 
+def apply_overrides(glyphs):
+    """apply_overrides -- replace the OVERRIDES glyphs and their reverse-video halves (IK64_DEVIATION).
+
+    Returns: the modified glyph bytes.
+    """
+    out = bytearray(glyphs)
+    for n, rows in OVERRIDES.items():
+        out[n * ROWS:(n + 1) * ROWS] = rows
+        r = n + REVERSE_SPAN
+        out[r * ROWS:(r + 1) * ROWS] = bytes(0xFF ^ b for b in rows)
+    return bytes(out)
+
+
 def render_body(glyphs):
     """render_body -- C initialiser lines, one glyph per line with its screen code.
 
@@ -261,7 +282,8 @@ def render_body(glyphs):
     for n in range(GLYPHS):
         row = glyphs[n * ROWS:(n + 1) * ROWS]
         vals = ", ".join(f"0x{b:02X}u" for b in row)
-        lines.append(f"    {{ {vals} }}, /* {n:3d}: set {n // 256}, screen code ${n % 256:02X} */")
+        note = " (ik64: underscore, not the left arrow)" if (n % REVERSE_SPAN) == UNDERSCORE_CODE else ""
+        lines.append(f"    {{ {vals} }}, /* {n:3d}: set {n // 256}, screen code ${n % 256:02X}{note} */")
     return "\n".join(lines)
 
 
@@ -292,6 +314,7 @@ def main(argv):
                   file=sys.stderr)
             return 1
         print(f"font2c: conversion matches {args.check_rom} ({len(rom)} bytes)")
+    glyphs = apply_overrides(glyphs)
     bad = reverse_mismatches(glyphs)
     if bad:
         print(f"font2c: {len(bad)} reverse-half glyphs are not exact inverses: {bad[:16]}")
