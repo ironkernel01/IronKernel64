@@ -19,11 +19,15 @@
  *      MAIN_LEASE_FAST_MS) until the RTL DHCP leaf holds a lease; its address
  *      is logged by the network manager.
  *   5. SMB: mount the share, list the base folder (name, size, dir flag for
- *      every entry), log the free space, unmount. On any error log the status
- *      text (libsmb2 error string and NTSTATUS, never credentials) and retry
- *      after MAIN_SMB_RETRY_MS.
- *   6. DONE: keep servicing lwIP; log a heartbeat every MAIN_HEARTBEAT_MS.
- *   A link loss in phases 4-6 returns to phase 3.
+ *      every entry), log the free space and keep the share mounted. On any
+ *      error log the status text (libsmb2 error string and NTSTATUS, never
+ *      credentials), unmount and retry after MAIN_SMB_RETRY_MS (the mount
+ *      itself retries a bounded number of times: session entry only).
+ *   6. DONE: the drive is ready (drive_server_set_ready(1)); every loop pass
+ *      services lwIP and takes one drive request (drive_server.c); log a
+ *      heartbeat every MAIN_HEARTBEAT_MS. A backend failure inside a request
+ *      clears ready and returns to phase 5.
+ *   A link loss in phases 4-6 unmounts, clears ready and returns to phase 3.
  *
  * Caches: the 8 KiB I/D caches of the MicroBlaze V cover the DDR3 window and
  *   are enabled by the hardware (the BSP's Xil_ICacheEnable/Xil_DCacheEnable
@@ -32,6 +36,7 @@
  */
 #include "backend_smb.h"
 #include "drive_log.h"
+#include "drive_server.h"
 #include "fatal.h"
 #include "ik64_net.h"
 #include "ik64_sysregs.h"
@@ -64,6 +69,8 @@ typedef enum
     PHASE_SMB,
     PHASE_DONE
 } phase_t;
+
+static const backend_ops_t g_smb_ops = BACKEND_OPS(smb);
 
 static phase_t  g_phase;
 static uint32_t g_phase_t0;        /* uptime (ms) when the phase was entered */
@@ -136,13 +143,13 @@ static void log_entry(const backend_dirent_t *e)
 }
 
 /*
- * smb_prove -- mount, list the base folder, report the free space, unmount.
+ * smb_prove -- mount, list the base folder, report the free space, stay mounted.
  * Steps:
  *   1. backend_smb_mount (bounded retries inside; logs the dialect).
  *   2. opendir on the share root folder (NETSHARE_BASE_PATH), readdir until
  *      BACKEND_END (the listing is already in memory, so every call consumes
  *      one entry), log each entry, closedir.
- *   3. free_bytes of the volume, then unmount.
+ *   3. free_bytes of the volume; the share stays mounted for the drive server.
  *   Every failure logs the backend's status text, which carries the libsmb2
  *   error and NTSTATUS and never the credentials.
  * Returns: 0 on success, -1 on any failure (the session is dropped).
@@ -193,7 +200,6 @@ static int smb_prove(void)
         drive_log_printf("SMB: free space query failed (status %d): %s\r\n", (int)st, text);
     }
     smb_alloc_log_stats();
-    (void)backend_smb_unmount();
     return 0;
 }
 
@@ -209,6 +215,8 @@ static void step(void)
     ik64_net_status(&ns);
     if ((g_phase != PHASE_LINK) && !ns.link_up) {
         drive_log_printf("MAIN: link lost, waiting for link\r\n");
+        drive_server_set_ready(0);
+        (void)backend_smb_unmount();
         enter(PHASE_LINK, now);
     }
     switch (g_phase) {
@@ -241,7 +249,8 @@ static void step(void)
             drive_log_printf("MAIN: SMB attempt %lu to %s share %s\r\n", (unsigned long)g_smb_tries,
                              NETSHARE_SERVER, NETSHARE_SHARE);
             if (smb_prove() == 0) {
-                drive_log_printf("MAIN: SMB access proven\r\n");
+                drive_log_printf("MAIN: SMB access proven, drive ready\r\n");
+                drive_server_set_ready(1);
                 enter(PHASE_DONE, (uint32_t)ik64_uptime_ms64());
                 g_next_log = g_phase_t0 + MAIN_HEARTBEAT_MS;
             } else {
@@ -251,6 +260,12 @@ static void step(void)
         }
         break;
     case PHASE_DONE:
+        if (!drive_server_ready()) {
+            drive_log_printf("MAIN: share lost, remounting\r\n");
+            (void)backend_smb_unmount();
+            enter(PHASE_SMB, now);
+            break;
+        }
         if (due(now, g_next_log)) {
             drive_log_printf("HB: uptime %lu s, link %u Mb/s, %s " "%u.%u.%u.%u, rx %lu tx %lu frames\r\n",
                              (unsigned long)(now / 1000u), (unsigned)ns.speed_mbps,
@@ -291,12 +306,14 @@ int main(void)
                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], NETSHARE_SERVER, NETSHARE_SHARE);
 
     (void)backend_smb_init();
+    drive_server_init(&g_smb_ops);
     if (ik64_net_init() != 0) {
         drive_log_printf("MAIN: network bring-up incomplete, continuing (the monitor keeps retrying the link)\r\n");
     }
     enter(PHASE_LINK, (uint32_t)ik64_uptime_ms64());
     for (;;) {
         ik64_net_service();
+        drive_server_poll();
         step();
     }
 }

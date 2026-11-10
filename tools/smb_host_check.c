@@ -5,6 +5,12 @@
  * netshare_config.h and are never printed.
  *
  * Usage: smb_host_check [sign]    ("sign" forces NETSHARE_SIGN on)
+ *        smb_host_check drive     (drive check: the real fw_1541/src/backend_smb.c
+ *                                  and cbmdos.c against the NAS: one mount, LOAD"$",
+ *                                  LOAD"SID F*"; prints file names and sizes only)
+ * The drive mode links backend_smb.c, cbmdos.c and this file's two stubs
+ * (drive_log_printf, ik64_net_delay_ms); build recipe: build/host_smb/build.sh
+ * with -DIK64_BACKEND_SMB -Ifw_1541/src -Ifw_1541/net and those two sources added.
  */
 #include <stdio.h>
 #include <string.h>
@@ -16,8 +22,98 @@
 #include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 #include "netshare_config.h"
+#ifdef IK64_BACKEND_SMB
+#include "backend_smb.h"
+#include "cbmdos.h"
+#include <stdarg.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
+#endif
 
 #define WORKSTATION "IK64-1541"
+
+#ifdef IK64_BACKEND_SMB
+/* Stubs for the firmware services backend_smb.c calls. */
+void drive_log_printf(const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    vprintf(fmt, ap);
+    va_end(ap);
+}
+
+void ik64_net_delay_ms(uint32_t ms)
+{
+#ifdef _WIN32
+    Sleep(ms);
+#else
+    (void)ms;
+#endif
+}
+
+/* Print a directory program as text: "blocks  name" per line. */
+static void print_dir(const uint8_t *d, uint32_t n)
+{
+    uint32_t i = 2u;
+
+    while (i + 4u <= n && (d[i] | d[i + 1u]) != 0u) {
+        printf("  %5u ", (unsigned)(d[i + 2u] | (d[i + 3u] << 8)));
+        for (i += 4u; i < n && d[i] != 0u; i++) {
+            putchar((d[i] >= 0x20 && d[i] < 0x7F) ? d[i] : (d[i] == 0x12 ? '*' : '?'));
+        }
+        putchar('\n');
+        i++;
+    }
+}
+
+static uint32_t drive_load(const char *name, uint8_t *buf, uint32_t cap, int *ok)
+{
+    uint32_t total = 0u;
+    int eoi = 0;
+    uint8_t st = cbmdos_open(0u, name);
+
+    *ok = 0;
+    printf("OPEN \"%s\" -> %s %s\n", name, cbmdos_text(st), st == CBMDOS_OK ? cbmdos_info() : "");
+    for (unsigned guard = 0u; st == CBMDOS_OK && !eoi && guard < 1000u; guard++) {
+        uint32_t got = 0u;
+
+        st = cbmdos_read(0u, buf + total, (cap - total < 61440u) ? cap - total : 61440u, &got, &eoi);
+        total += got;
+    }
+    (void)cbmdos_close(0u);
+    *ok = (st == CBMDOS_OK && eoi) ? 1 : 0;
+    return total;
+}
+
+static int drive_check(void)
+{
+    static const backend_ops_t ops = BACKEND_OPS(smb);
+    static uint8_t buf[1u << 20];
+    uint32_t n;
+    int ok;
+
+    (void)backend_smb_init();
+    if (backend_smb_mount() != BACKEND_OK) {
+        char text[BACKEND_STATUS_TEXT_BYTES];
+
+        (void)backend_smb_status_text(text, sizeof(text));
+        printf("FAIL: mount: %s\n", text);
+        return 1;
+    }
+    cbmdos_init(&ops);
+    n = drive_load("$", buf, sizeof(buf), &ok);
+    printf("directory program %u bytes, %s\n", (unsigned)n, ok ? "EOI" : "FAILED");
+    if (ok) {
+        print_dir(buf, n);
+    }
+    n = drive_load("SID F*", buf, sizeof(buf), &ok);
+    printf("LOAD SID F*: %u bytes, %s\n", (unsigned)n, ok ? "EOI" : "FAILED");
+    (void)backend_smb_unmount();
+    return ok ? 0 : 1;
+}
+#endif
 
 int main(int argc, char **argv)
 {
@@ -31,6 +127,11 @@ int main(int argc, char **argv)
 #ifdef _WIN32
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
+#endif
+#ifdef IK64_BACKEND_SMB
+    if (argc > 1 && strcmp(argv[1], "drive") == 0) {
+        return drive_check();
+    }
 #endif
     printf("server=%s share=%s base=%s sign=%d seal=%d%s\n",
            NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_BASE_PATH,
