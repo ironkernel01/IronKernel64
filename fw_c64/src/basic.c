@@ -91,6 +91,10 @@
 #define NP_ROW_VOICE1         (10u)
 #define NP_ROW_HELP           (24u)
 
+/* Now-playing break keys besides RUN/STOP: PETSCII 'X' (UART 'x'/'X', PS/2 X) and shifted X. */
+#define BASIC_KEY_BREAK          (0x58u)
+#define BASIC_KEY_BREAK_SHIFTED  (0xD8u)
+
 typedef enum
 {
     BASIC_STATE_EDIT = 0,
@@ -1186,7 +1190,7 @@ static void np_open(void)
     for (uint32_t v = 0u; v < BASIC_VOICES; v++) {
         np_text(NP_ROW_VOICE1 + v, 0u, labels[v], BASIC_COLS, C64SCREEN_BOOT_TEXT);
     }
-    np_text(NP_ROW_HELP, 0u, " +/- 1-9 SONG     RUN/STOP BREAK", BASIC_COLS,
+    np_text(NP_ROW_HELP, 0u, " +/- 1-9 SONG     X KEY TO BREAK", BASIC_COLS,
             VIDEO_COL_LIGHT_GREY);
     np_text(NP_ROW_NAME, BASIC_FIELD_COL, g_tune.name, BASIC_FIELD_CELLS, VIDEO_COL_WHITE);
     np_text(NP_ROW_AUTHOR, BASIC_FIELD_COL, g_tune.author, BASIC_FIELD_CELLS, VIDEO_COL_WHITE);
@@ -1243,7 +1247,7 @@ static void np_select(uint32_t song)
  * np_poll -- one pass of the now-playing loop.
  * Steps:
  *   1. Serve the player (audio rendering).
- *   2. Keys: RUN/STOP closes, '+' / '-' step the song, '1'..'9' pick one.
+ *   2. Keys: X (either case) or RUN/STOP closes, '+' / '-' step the song, '1'..'9' pick one.
  *   3. Refresh the changing fields.
  * Returns: nothing.
  */
@@ -1253,7 +1257,7 @@ static void np_poll(void)
 
     g_cfg.player->service();
     for (uint32_t i = 0u; i < BASIC_KEYS_PER_POLL && keyboard_getkey(&k); i++) {
-        if (k == KEYBOARD_KEY_RUN_STOP) {
+        if (k == KEYBOARD_KEY_RUN_STOP || k == BASIC_KEY_BREAK || k == BASIC_KEY_BREAK_SHIFTED) {
             np_close();
             return;
         }
