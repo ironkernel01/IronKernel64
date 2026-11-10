@@ -17,9 +17,23 @@
         "scripts/rtlnet_run_sim.ps1",
         "scripts/rtlnet_synth_check.tcl",
         "scripts/rtlnet_tools.ps1",
-        "scripts/rtlnet_vivado.ps1"
+        "scripts/rtlnet_vivado.ps1",
+        "cores/rtlnet_eth_mac/",
+        "cores/rtlnet_mdio/",
+        "cores/rtlnet_eth_protocol/",
+        "cores/rtlnet_classifier/",
+        "cores/rtlnet_tcp_offload/",
+        "cores/rtlnet_arp/",
+        "cores/rtlnet_icmp/",
+        "cores/rtlnet_dhcp/",
+        "cores/rtlnet_iperf/",
+        "cores/rtlnet_udp_socket/",
+        "boards/nexys_video/constraints/rtlnet_nexys_video_rgmii.xdc",
+        "boards/nexys_video/constraints/rtlnet_nexys_video.xdc",
+        "boards/nexys_video/hdl/rtlnet_nexys_video_top.sv",
+        "microblaze/firmware/src/"
       ],
-      "tree_sha256": "e0ac58a557ee2dbaf233d279dcb2acc3d53c37176bf797c3b53bd6af694e0232"
+      "tree_sha256": "4738c833212ee4f3914a5f6f79536a74598dbd1ae6865bdb1e210c9a1dcfac47"
     },
     {
       "name": "rtlnet-board",
