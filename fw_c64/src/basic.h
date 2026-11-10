@@ -13,7 +13,7 @@
  *
  * Contract:
  *   - basic_init() draws the boot screen (border 14, background 6, text 14):
- *          **** IRONCORE 64 BASIC V2 ****
+ *         **** IRONKERNEL 64 BASIC V2 ****
  *      512M RAM SYSTEM  402653184 BYTES FREE
  *     READY.
  *     The size is cfg->mem_info's RAM size as nnnM (whole MiB) or nnnK; the word BASIC is
