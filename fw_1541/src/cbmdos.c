@@ -5,6 +5,9 @@
  * File: cbmdos.c
  * Role: CBM DOS emulation over backend.h; contract and scope in cbmdos.h.
  *
+ * Extensions: a trailing ".SID" or ".PRG" (any case) is hidden in the directory and ignored
+ *   by name matching; see ext_len(), name_matches() and file_open().
+ *
  * Directory image (1541 format, load address $0401): bytes 0..1 are the load
  *   address; every line is link(2) number(2) text NUL; the link of a line is
  *   the C64 address of the next line, so the byte at image index i has address
@@ -131,6 +134,63 @@ static uint32_t map_name(const char *name, uint8_t *out)
     return n;
 }
 
+static uint32_t strlen_(const char *s)
+{
+    uint32_t n = 0u;
+
+    while (s[n] != '\0') {
+        n++;
+    }
+    return n;
+}
+
+/*
+ * ext_len -- length of a hidden extension (".sid" or ".prg", any case) at the end of a
+ *   native name that has at least one character before it.
+ * Returns: 4 when the name ends in a hidden extension, else 0.
+ */
+static uint32_t ext_len(const char *name)
+{
+    const uint32_t n = strlen_(name);
+
+    if (n > 4u && name[n - 4u] == '.') {
+        const uint8_t a = pet_upper((uint8_t)name[n - 3u]);
+        const uint8_t b = pet_upper((uint8_t)name[n - 2u]);
+        const uint8_t c = pet_upper((uint8_t)name[n - 1u]);
+
+        if ((a == 'S' && b == 'I' && c == 'D') || (a == 'P' && b == 'R' && c == 'G')) {
+            return 4u;
+        }
+    }
+    return 0u;
+}
+
+/*
+ * is_sid -- does the native name end in ".sid" (any case)?
+ * Returns: 1 when it does.
+ */
+static int is_sid(const char *name)
+{
+    return (ext_len(name) != 0u && pet_upper((uint8_t)name[strlen_(name) - 3u]) == 'S') ? 1 : 0;
+}
+
+/*
+ * map_shown -- the name as listed and matched: the hidden extension cut off, then at most
+ *   16 PETSCII characters.
+ * Returns: the number of characters written to out.
+ */
+static uint32_t map_shown(const char *name, uint8_t *out)
+{
+    const uint32_t len = strlen_(name) - ext_len(name);
+    uint32_t n = 0u;
+
+    while (n < len && n < CBMDOS_NAME_CHARS) {
+        out[n] = share_to_pet(name[n]);
+        n++;
+    }
+    return n;
+}
+
 static uint8_t fold(uint8_t c)
 {
     return (c == (uint8_t)'_') ? (uint8_t)' ' : c;
@@ -160,6 +220,49 @@ static int wild_match(const uint8_t *pat, const uint8_t *name, uint32_t n)
         }
         i++;
     }
+}
+
+/*
+ * name_matches -- does the pattern select this native name?
+ * Matches the extension-less shown name, or the full name with its extension (so
+ *   "AIRWOLF", "AIRWOLF*" and "AIRWOLF.SID" all select Airwolf.sid).
+ * Returns: 1 on a match.
+ */
+static int name_matches(const uint8_t *pat, const char *name)
+{
+    uint8_t nm[CBMDOS_NAME_CHARS];
+    uint32_t nlen = map_shown(name, nm);
+
+    if (wild_match(pat, nm, nlen)) {
+        return 1;
+    }
+    if (ext_len(name) != 0u) {
+        nlen = map_name(name, nm);
+        return wild_match(pat, nm, nlen);
+    }
+    return 0;
+}
+
+/*
+ * same_shown -- do two native names show the same (extension-less) name?
+ * Returns: 1 when equal ignoring case and the hidden extension.
+ */
+static int same_shown(const char *a, const char *b)
+{
+    uint8_t x[CBMDOS_NAME_CHARS];
+    uint8_t y[CBMDOS_NAME_CHARS];
+    const uint32_t nx = map_shown(a, x);
+    const uint32_t ny = map_shown(b, y);
+
+    if (nx != ny) {
+        return 0;
+    }
+    for (uint32_t i = 0u; i < nx; i++) {
+        if (x[i] != y[i]) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /*
@@ -235,7 +338,7 @@ static void dir_entry(const backend_dirent_t *e)
 {
     uint8_t t[CBMDOS_LINE_TEXT_MAX];
     uint8_t nm[CBMDOS_NAME_CHARS];
-    const uint32_t nlen = map_name(e->name, nm);
+    const uint32_t nlen = map_shown(e->name, nm);
     const uint64_t blocks64 = (e->type == BACKEND_ENT_DIR) ? 0u
                               : (e->size + CBMDOS_BLOCK_BYTES - 1u) / CBMDOS_BLOCK_BYTES;
     const uint32_t blocks = (blocks64 > CBMDOS_BLOCKS_MAX) ? CBMDOS_BLOCKS_MAX : (uint32_t)blocks64;
@@ -296,9 +399,6 @@ static uint8_t dir_build(const uint8_t *pat)
         return note_backend(st);
     }
     for (;;) {
-        uint8_t nm[CBMDOS_NAME_CHARS];
-        uint32_t nlen;
-
         st = g_ops->readdir(&ent);
         if (st == BACKEND_END) {
             break;
@@ -310,8 +410,7 @@ static uint8_t dir_build(const uint8_t *pat)
         if (ent.type == BACKEND_ENT_OTHER) {
             continue;
         }
-        nlen = map_name(ent.name, nm);
-        if (wild_match(pat, nm, nlen) &&
+        if (name_matches(pat, ent.name) &&
             g_dir_len + CBMDOS_LINE_TEXT_MAX + 5u + CBMDOS_FOOTER_BYTES <= CBMDOS_DIR_BYTES) {
             dir_entry(&ent);
         }
@@ -352,13 +451,16 @@ static void info_set(const char *name, uint64_t size)
 /*
  * file_open -- open the first regular file whose name matches the pattern.
  * Steps:
- *   1. opendir "" / readdir until a regular file matches; closedir.
+ *   1. opendir "" / readdir to the end; the first regular file that matches wins, except
+ *      that a later ".sid" file replaces an earlier non-".sid" match with the same
+ *      extension-less name (".sid" is preferred over ".prg"); closedir.
  *   2. No match: 62. Otherwise backend open of that native name.
  * Returns: CBMDOS_OK, FILE_NOT_FOUND or NOT_READY.
  */
 static uint8_t file_open(const uint8_t *pat)
 {
     backend_dirent_t ent;
+    backend_dirent_t best = { { 0 }, 0u, BACKEND_ENT_FILE };
     backend_status_t st;
     uint64_t size = 0u;
     int found = 0;
@@ -368,9 +470,6 @@ static uint8_t file_open(const uint8_t *pat)
         return note_backend(st);
     }
     for (;;) {
-        uint8_t nm[CBMDOS_NAME_CHARS];
-        uint32_t nlen;
-
         st = g_ops->readdir(&ent);
         if (st == BACKEND_END) {
             break;
@@ -379,23 +478,26 @@ static uint8_t file_open(const uint8_t *pat)
             (void)g_ops->closedir();
             return note_backend(st);
         }
-        nlen = map_name(ent.name, nm);
-        if (ent.type == BACKEND_ENT_FILE && wild_match(pat, nm, nlen)) {
-            found = 1;
-            break;
+        if (ent.type == BACKEND_ENT_FILE && name_matches(pat, ent.name)) {
+            if (!found) {
+                best = ent;
+                found = 1;
+            } else if (is_sid(ent.name) && !is_sid(best.name) && same_shown(ent.name, best.name)) {
+                best = ent;
+            }
         }
     }
     (void)g_ops->closedir();
     if (!found) {
         return CBMDOS_FILE_NOT_FOUND;
     }
-    st = g_ops->open(ent.name, &g_fh, &size);
+    st = g_ops->open(best.name, &g_fh, &size);
     if (st != BACKEND_OK) {
         return note_backend(st);
     }
     g_file_open = 1;
     g_file_done = 0;
-    info_set(ent.name, size);
+    info_set(best.name, size);
     return CBMDOS_OK;
 }
 

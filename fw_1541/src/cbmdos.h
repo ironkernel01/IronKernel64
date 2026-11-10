@@ -13,6 +13,12 @@
  *     pattern, because CBM users type spaces). Only regular files match; the
  *     first match in share order wins. A ",P,R"-style suffix and a leading
  *     "0:" are ignored.
+ *   - Extensions: a trailing ".SID" or ".PRG" (any case) is hidden in the directory
+ *     ("AIRWOLF", type PRG) and ignored by matching: "AIRWOLF", "AIRWOLF*" and
+ *     "AIRWOLF.SID" all open Airwolf.sid. Wildcards apply to the extension-less name; a
+ *     pattern that matches the full name with its extension also works. When two files
+ *     differ only by extension, ".sid" is opened in preference to ".prg" (both are
+ *     listed under the same name).
  *   - OPEN "$" (also "$0", "$:pat", "$0:pat"): the directory as the 1541's
  *     BASIC program (load address $0401, line links, line number = blocks =
  *     ceil(size/254), header 0 "IRONKERNEL NET  " 64 2A in reverse, every
@@ -24,6 +30,8 @@
  *   - CMD: every DOS command (CD, I, UI, wedge commands) answers
  *     31,SYNTAX ERROR for now. Writing (channel 1) answers 26,WRITE PROTECT ON.
  * One channel is open at a time; a new OPEN closes the previous one.
+ * While the share is not mounted drive_server answers 74 to every request (OPEN, LOAD,
+ * directory); core 0 prints ?DEVICE NOT PRESENT for it.
  * Backend failure (NOT_READY, IO, AUTH) answers 74,DRIVE NOT READY and raises
  * the lost flag that drive_server turns into "not ready" until main remounts.
  *

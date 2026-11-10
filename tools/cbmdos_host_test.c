@@ -32,6 +32,14 @@ static const fake_ent_t g_set_long[] = {
     { "link.lnk",                 5u,   BACKEND_ENT_OTHER },
 };
 
+static const fake_ent_t g_set_ext[] = {
+    { "Airwolf.PRG",   100u, BACKEND_ENT_FILE },
+    { "Airwolf.sid",   200u, BACKEND_ENT_FILE },
+    { "Axel_F.sid",    300u, BACKEND_ENT_FILE },
+    { "Notes.txt",     10u,  BACKEND_ENT_FILE },
+    { ".sid",          7u,   BACKEND_ENT_FILE },
+};
+
 static const fake_ent_t *g_set = g_set_two;
 static unsigned g_set_n = 2u;
 static unsigned g_dir_idx;
@@ -157,11 +165,11 @@ int main(int argc, char **argv)
         'I', 'R', 'O', 'N', 'K', 'E', 'R', 'N', 'E', 'L', ' ', 'N', 'E', 'T', ' ', ' ',
         0x22, 0x20, '6', '4', 0x20, '2', 'A', 0x00,
         0x3E, 0x04, 0x0E, 0x00, 0x20, 0x20, 0x22,
-        'A', 'N', 'O', 'T', 'H', 'E', 'R', '.', 'S', 'I', 'D',
-        0x22, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 'P', 'R', 'G', 0x20, 0x20, 0x00,
+        'A', 'N', 'O', 'T', 'H', 'E', 'R',
+        0x22, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 'P', 'R', 'G', 0x20, 0x20, 0x00,
         0x5D, 0x04, 0x13, 0x00, 0x20, 0x20, 0x22,
-        'S', 'I', 'D', '_', 'F', 'A', 'C', 'T', 'O', 'R', 'Y', '.', 'S', 'I', 'D',
-        0x22, 0x20, 0x20, 'P', 'R', 'G', 0x20, 0x20, 0x00,
+        'S', 'I', 'D', '_', 'F', 'A', 'C', 'T', 'O', 'R', 'Y',
+        0x22, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 'P', 'R', 'G', 0x20, 0x20, 0x00,
         0x7B, 0x04, 0x61, 0x0F,
         'B', 'L', 'O', 'C', 'K', 'S', ' ', 'F', 'R', 'E', 'E', '.',
         0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x00,
@@ -264,6 +272,63 @@ int main(int argc, char **argv)
     }
     use_set(g_set_two, 2u);
 
+    /* 5b. Hidden .SID / .PRG extension: display and matching. */
+    use_set(g_set_ext, 5u);
+    check(cbmdos_open(0u, "$") == CBMDOS_OK, "open $ (ext set)");
+    n = read_all(0u, buf, sizeof(buf), 1000u, &eoi_ok);
+    {
+        int sid_shown = 0;
+        int txt_full = 0;
+        int dotsid_full = 0;
+        int sid_ext_seen = 0;
+
+        for (uint32_t i = 0u; i + 12u < n; i++) {
+            if (memcmp(&buf[i], "\"AXEL_F\" ", 9) == 0) {
+                sid_shown = 1;
+            }
+            if (memcmp(&buf[i], "\"NOTES.TXT\"", 11) == 0) {
+                txt_full = 1;
+            }
+            if (memcmp(&buf[i], "\".SID\"", 6) == 0) {
+                dotsid_full = 1;
+            }
+            if (memcmp(&buf[i], "F.SID", 5) == 0 || memcmp(&buf[i], "F.PRG", 5) == 0) {
+                sid_ext_seen = 1;
+            }
+        }
+        check(sid_shown, "Axel_F.sid is listed as AXEL_F");
+        check(txt_full, "other extensions stay visible");
+        check(dotsid_full, "a name that is only the extension stays whole");
+        check(!sid_ext_seen, "no hidden extension in the listing");
+    }
+    check(cbmdos_open(0u, "AXEL_F") == CBMDOS_OK && strcmp(cbmdos_info(), "Axel_F.sid 300 B") == 0,
+          "exact name without extension");
+    check(cbmdos_open(0u, "AXEL_F.SID") == CBMDOS_OK && strcmp(cbmdos_info(), "Axel_F.sid 300 B") == 0,
+          "exact name with extension");
+    check(cbmdos_open(0u, "axel_f.sid") == CBMDOS_OK, "lower case with extension");
+    check(cbmdos_open(0u, "AXEL*") == CBMDOS_OK && strcmp(cbmdos_info(), "Axel_F.sid 300 B") == 0,
+          "wildcard *");
+    check(cbmdos_open(0u, "AXEL?F") == CBMDOS_OK, "? against the extension-less name");
+    check(cbmdos_open(0u, "AXEL?F.SID") == CBMDOS_OK, "? with the extension");
+    check(cbmdos_open(0u, "AXEL") == CBMDOS_FILE_NOT_FOUND, "prefix without * does not match");
+    check(cbmdos_open(0u, "AXEL_F?") == CBMDOS_FILE_NOT_FOUND, "? needs a character");
+    check(cbmdos_open(0u, "AXEL_F.PRG") == CBMDOS_FILE_NOT_FOUND, "wrong extension does not match");
+    check(cbmdos_open(0u, "AIRWOLF") == CBMDOS_OK && strcmp(cbmdos_info(), "Airwolf.sid 200 B") == 0,
+          "AIRWOLF prefers .sid over .prg");
+    check(cbmdos_open(0u, "AIRWOLF*") == CBMDOS_OK && strcmp(cbmdos_info(), "Airwolf.sid 200 B") == 0,
+          "AIRWOLF* prefers .sid");
+    check(cbmdos_open(0u, "AIRWOLF.SID") == CBMDOS_OK && strcmp(cbmdos_info(), "Airwolf.sid 200 B") == 0,
+          "AIRWOLF.SID opens the .sid");
+    check(cbmdos_open(0u, "AIRWOLF.PRG") == CBMDOS_OK && strcmp(cbmdos_info(), "Airwolf.PRG 100 B") == 0,
+          "AIRWOLF.PRG exact opens the .prg");
+    check(cbmdos_open(0u, "NOTES.TXT") == CBMDOS_OK, "unhidden extension still matches");
+    check(cbmdos_open(0u, "NOTES") == CBMDOS_FILE_NOT_FOUND, "unhidden extension needs the full name");
+    check(cbmdos_open(0u, "$:AIR*") == CBMDOS_OK, "$:AIR* with the hidden extension");
+    n = read_all(0u, buf, sizeof(buf), 1000u, &eoi_ok);
+    check(n == 2u + 30u + 32u + 32u + 30u + 2u, "$:AIR* lists both Airwolf files");
+    check(cbmdos_close(0u) == CBMDOS_OK, "close ext");
+    use_set(g_set_two, 2u);
+
     /* 6. Backend failure: 74 and the lost flag. */
     (void)cbmdos_take_backend_lost();
     g_fail = 1;
@@ -271,6 +336,8 @@ int main(int argc, char **argv)
     check(cbmdos_take_backend_lost() == 1, "lost flag raised");
     check(cbmdos_take_backend_lost() == 0, "lost flag clears");
     check(strcmp(cbmdos_text(CBMDOS_NOT_READY), "74,DRIVE NOT READY,00,00") == 0, "74 text");
+    check(cbmdos_open(0u, "SID F*") == CBMDOS_NOT_READY, "backend down: file open is 74, not 62");
+    check(strcmp(cbmdos_text(cbmdos_take_status()), "74,DRIVE NOT READY,00,00") == 0, "74 status line");
     g_fail = 0;
 
     if (g_errors == 0) {

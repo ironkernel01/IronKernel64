@@ -810,13 +810,18 @@ static int is_sid(void)
 
 /*
  * print_dos_failure -- C64 error for a failed drive request.
+ * A DOS error 74 (DRIVE NOT READY: the drive has no network share yet or lost it) prints
+ * ?DEVICE NOT PRESENT like a missing drive; the 74 text stays readable with "@".
  * Returns: nothing.
  */
 static void print_dos_failure(drive_client_result_t r)
 {
     switch (r) {
     case DRIVE_CLIENT_TIMEOUT:   print_error("DEVICE NOT PRESENT"); break;
-    case DRIVE_CLIENT_DOS_ERROR: print_error("FILE NOT FOUND"); break;
+    case DRIVE_CLIENT_DOS_ERROR:
+        print_error((drive_client_last_status() == DRIVE_ST_DRIVE_NOT_READY) ? "DEVICE NOT PRESENT"
+                                                                           : "FILE NOT FOUND");
+        break;
     case DRIVE_CLIENT_TOO_BIG:   print_error("OUT OF MEMORY"); break;
     default:                     print_error("SYNTAX"); break;
     }
