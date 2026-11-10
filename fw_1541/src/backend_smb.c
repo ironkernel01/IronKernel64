@@ -6,9 +6,9 @@
  * Role: drive backend over an SMB2/3 share with libsmb2's synchronous API
  *   (contract: backend.h, backend_smb.h). The only file that calls libsmb2.
  *
- * Configuration: fw_1541/netshare_config.h (gitignored, filled in by the
- *   user from netshare_config.example.h). The build stops here when it is
- *   missing or incomplete.
+ * Configuration: netshare.h picks fw_1541/netshare_config.h (gitignored,
+ *   filled in by the user from netshare_config.example.h), or the example's
+ *   placeholders in a PUBLIC build. The build stops here when a field is missing.
  */
 #include "backend_smb.h"
 
@@ -29,15 +29,7 @@
 #include <stdio.h>         /* snprintf */
 #include <string.h>        /* strlen, memcpy, strcmp */
 
-#if defined(__has_include)
-#if __has_include("netshare_config.h")
-#include "netshare_config.h"
-#else
-#error "fw_1541/netshare_config.h is missing: copy fw_1541/netshare_config.example.h to fw_1541/netshare_config.h and fill in NETSHARE_USER and NETSHARE_PASSWORD (the file is gitignored and never committed)"
-#endif
-#else
-#include "netshare_config.h"
-#endif
+#include "netshare.h"   /* netshare_config.h, or the example placeholders in a PUBLIC build */
 
 #if !defined(NETSHARE_SERVER) || !defined(NETSHARE_SHARE) || !defined(NETSHARE_BASE_PATH)
 #error "netshare_config.h must define NETSHARE_SERVER, NETSHARE_SHARE and NETSHARE_BASE_PATH"

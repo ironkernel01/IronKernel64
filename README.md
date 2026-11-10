@@ -13,7 +13,16 @@ Revision 11-10-2026. Documents: [specification](Documentation/ironkernel64_spec.
 - PSID v1 to v4, vertical-blank and CIA-timer play speed, PAL and NTSC. RSID, MUS data and play address 0 are rejected.
 - The now-playing screen shows name, author, released, song n/m, time, three voice bars and two piano keyboards.
 - Device 9 holds the public tune bank (9 arrangements of public-domain pieces) and works without a network. Device 8 reads an SMB share through lwIP and libsmb2 on core 1.
-- A single QSPI flash image for stand-alone boot is planned and in progress; until it exists, a board session is "program the bitstream, then JTAG-load core 1".
+- Boots stand-alone from the board's QSPI flash: one image holds the bitstream, core 0's firmware, a core 1 bootloader, core 1's firmware and the tune bank. Set jumper JP4 to "SPI Flash".
+
+## Quick start with the release image
+
+1. Download `ik64_qspi.mcs` (and its SHA-256) from the GitHub release.
+2. Write it to the Nexys Video's configuration flash: Vivado Hardware Manager, "Add Configuration Memory Device" `s25fl256sxxxxxx0-spi-x1_x2_x4`, program with erase and verify on; or, with this repository, `scripts/program_qspi.ps1 -Program ik64_qspi.mcs`.
+3. Set JP4 to "SPI Flash" and press PROG (or power-cycle). `READY.` appears on HDMI and on the UART (115200 8N1) within a few seconds.
+4. `LOAD"$",9`, `LIST`, `LOAD"CANON*",9`, `RUN`.
+
+The release image has no network share configured: device 9 works out of the box; for device 8, build core 1 with your own `fw_1541/netshare_config.h` and make your own image (below). `c64_qspi.bit` in the release loads the same design over JTAG (core 1 then loads its image from the flash).
 
 ## Build and run
 
@@ -24,9 +33,11 @@ python -I tools/setup_third_party.py            # install third-party trees at t
 powershell -File scripts/ik64_vivado.ps1 ...     # bitstream: fpga/build_bitstream.tcl (WNS/WHS/CDC gates)
 powershell -File fw_c64/build.ps1                # core 0 firmware (256 KiB LMB)
 powershell -File fw_1541/build.ps1               # core 1 firmware (needs fw_1541/netshare_config.h)
-powershell -File scripts/program.ps1             # program the board
-powershell -File scripts/jtag_load.ps1 -Core 1 -Bank build/bank/public.bin
 python -I tools/mkpublicbank.py                  # build the public tune bank
+powershell -File scripts/make_qspi.ps1           # single flash image: build/qspi/ik64_qspi.mcs
+powershell -File scripts/program_qspi.ps1 -Program build/qspi/ik64_qspi.mcs   # write the flash, then -Reboot
+powershell -File scripts/program.ps1             # development: program over JTAG ...
+powershell -File scripts/jtag_load.ps1 -Core 1 -Bank build/bank/public.bin   # ... and load core 1
 ```
 
 Copy `fw_1541/netshare_config.example.h` to `netshare_config.h` and fill in the share (the file is gitignored; credentials never go in the repository). Tests: `scripts/ik64_regression.ps1` (RTL), `python -I tools/public_bank_test.py`, and the `tools/*_host_test.c` programs. The network core is a closed netlist (`fpga/netlist/ik64_net_core.dcp`), so the whole bitstream builds from this tree without any network source.

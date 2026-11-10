@@ -32,16 +32,21 @@ Overview:
 Exit codes (0 = success, prints FW_1541: PASS <elf> text/data/bss):
    2  usage / environment: no Vitis, no XSA, no toolchain, third_party or the network library missing
    4  fw_1541/net/lwipopts.h differs from the one libik64_netcore.a was built with
-   3  fw_1541/netshare_config.h missing
+   3  fw_1541/netshare_config.h missing (not checked with -Public)
+  42  -Public: a value of fw_1541/netshare_config.h is in the image
   20  BSP generation failed
   21  BSP compiler flags unexpected
   30  compile error or warning
   40  link error or linker warning
   41  image does not fit its memory region
-Usage: powershell -NoProfile -ExecutionPolicy Bypass -File fw_1541/build.ps1 [-Xsa <xsa>] [-Bsp]
+Usage: powershell -NoProfile -ExecutionPolicy Bypass -File fw_1541/build.ps1 [-Xsa <xsa>] [-Bsp] [-Public]
+  -Public: release build into build/fw_1541_public with -DPUBLIC (src/netshare.h takes the
+    placeholders of netshare_config.example.h; netshare_config.h is never compiled in), then
+    scans the ELF for the values of netshare_config.h and fails (42) when one is found.
 Environment: FW_1541_XILINX = install root (default C:\AMDDesignTools\2026.1).
 Revision: 11-10-2026
   * 11-09-2026: initial version (replaces spike_build.ps1 for the no-RTOS design).
+  * 11-10-2026: -Public (PUBLIC define, separate output folder, credential scan of the ELF).
   * 11-10-2026: tune bank reservation (device 9): the linker's ddr3 region ends below
     C64_PLAT_BANK_BASE (read from common/c64_platform.h); backend_ram built in.
 -------------------------------------------------------------------------------
@@ -49,13 +54,14 @@ Revision: 11-10-2026
 param(
     [string]$Xsa = '',
     [string]$OutDir = '',
-    [switch]$Bsp
+    [switch]$Bsp,
+    [switch]$Public
 )
 $ErrorActionPreference = 'Stop'
 
 $Fw      = (Resolve-Path -LiteralPath $PSScriptRoot).Path -replace '\\', '/'
 $Repo    = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path -replace '\\', '/'
-$Out     = if ($OutDir) { $OutDir.Replace('\', '/') } else { "$Repo/build/fw_1541" }
+$Out     = if ($OutDir) { $OutDir.Replace('\', '/') } elseif ($Public) { "$Repo/build/fw_1541_public" } else { "$Repo/build/fw_1541" }
 $Ws      = "$Out/bsp"
 $BspDir  = "$Ws/plt/microblaze_1/dom/bsp"
 $Obj     = "$Out/obj"
@@ -122,7 +128,7 @@ $haveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath "$Fw/net/lwipopts.h").H
 if ($haveHash -ne $wantHash) {
     Stop-Build 4 "fw_1541/net/lwipopts.h (sha256 $haveHash) differs from the option set libik64_netcore.a was built with ($wantHash); restore lwipopts.h, or rebuild the library with ironkernel/build_fwlib.ps1 (needs ironkernel/src)"
 }
-if (-not (Test-Path -LiteralPath "$Fw/netshare_config.h")) {
+if (-not $Public -and -not (Test-Path -LiteralPath "$Fw/netshare_config.h")) {
     Stop-Build 3 "fw_1541/netshare_config.h is missing: copy fw_1541/netshare_config.example.h to fw_1541/netshare_config.h and fill in NETSHARE_USER and NETSHARE_PASSWORD (gitignored, never committed)"
 }
 if (-not $Xsa) { $Xsa = "$Repo/build/fpga/c64.xsa" }
@@ -253,7 +259,8 @@ $strict = @('-std=c11', '-Wall', '-Wextra', '-Werror')
 # ours
 $ourSrcs = @(Get-ChildItem -LiteralPath "$Fw/src" -Filter '*.c' | ForEach-Object { $_.FullName -replace '\\', '/' }) +
            @(Get-ChildItem -LiteralPath "$Fw/net" -Filter 'ik64_*.c' | ForEach-Object { $_.FullName -replace '\\', '/' })
-Compile-Group 'ik64' $ourSrcs ($strict + @('-pedantic', '-DIK64_BACKEND_SMB', '-DIK64_BACKEND_RAM') + $ourInc + $lwipInc + $smbInc + $sysInc)
+$pubDef = if ($Public) { @('-DPUBLIC') } else { @() }   # PUBLIC: src/netshare.h takes the example placeholders
+Compile-Group 'ik64' $ourSrcs ($strict + @('-pedantic', '-DIK64_BACKEND_SMB', '-DIK64_BACKEND_RAM') + $pubDef + $ourInc + $lwipInc + $smbInc + $sysInc)
 # Network core: the prebuilt library joins the link below; the group keeps its row in the size table.
 $groups['netcore'] = @()
 # libsmb2, unmodified
@@ -324,5 +331,23 @@ foreach ($g in @($groups.Keys) + @('newlib+bsp', 'strings')) {
 }
 Write-Output "ELF: text $($tot[0]) data $($tot[1]) bss $($tot[2]) total $used of DDR3 code region $DdrCode ($('{0:N1}' -f (100.0 * $used / $DdrCode)) %), bank 0x$($BankBase.ToString('X')) + $BankSize reserved"
 if ($used -gt $DdrCode) { Stop-Build 41 "image $used bytes exceeds the core 1 DDR3 code region ($DdrCode, partition $DdrSize minus the $BankSize byte bank)" }
+# PUBLIC gate: no value of the owner's netshare_config.h may be in the image (values are never printed).
+if ($Public) {
+    $cfg = "$Fw/netshare_config.h"
+    if (Test-Path -LiteralPath $cfg) {
+        $img = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($elf))   # one char per byte
+        $exVals = @([regex]::Matches((Get-Content -LiteralPath "$Fw/netshare_config.example.h" -Raw), '#define\s+NETSHARE_\w+\s+"([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
+        $hits = @()
+        foreach ($m in [regex]::Matches((Get-Content -LiteralPath $cfg -Raw), '#define\s+(NETSHARE_\w+)\s+"([^"]*)"')) {
+            $v = $m.Groups[2].Value
+            if ($v.Length -lt 4 -or $exVals -contains $v) { continue }   # too short to identify, or the placeholder itself
+            if ($img.Contains($v)) { $hits += $m.Groups[1].Value }
+        }
+        if ($hits.Count -gt 0) { Stop-Build 42 "PUBLIC image contains values of fw_1541/netshare_config.h: $($hits -join ', ') (values not printed)" }
+        Write-Output "FW_1541: PUBLIC scan: no value of fw_1541/netshare_config.h in $elf"
+    } else {
+        Write-Output "FW_1541: PUBLIC scan: no fw_1541/netshare_config.h on this machine, nothing to compare"
+    }
+}
 Write-Output "FW_1541: PASS $elf text/data/bss $($tot[0])/$($tot[1])/$($tot[2])"
 exit 0

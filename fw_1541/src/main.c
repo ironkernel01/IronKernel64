@@ -50,7 +50,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "netshare_config.h"   /* NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_BASE_PATH, NETSHARE_IP_MODE, NETSHARE_STATIC_* (no credentials) */
+#include "netshare.h"          /* NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_BASE_PATH, NETSHARE_IP_MODE, NETSHARE_STATIC_* (no credentials) */
 
 #define MAIN_LINK_LOG_MS         (1000u)     /* link/lease wait log period */
 #define MAIN_LINK_FAST_MS        (30000u)    /* after this long the wait log slows down */
