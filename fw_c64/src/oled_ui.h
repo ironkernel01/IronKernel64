@@ -16,7 +16,10 @@
  *       (empty fields are left out). The text is longer than the 512-column frame buffer, so the
  *       hardware scroll registers act as a ring: the 256 columns from the scroll offset are kept
  *       drawn, and each frame draws the one column that enters that range (text column modulo
- *       8 * length), so the loop is seamless at any text length. TIME changes every second
+ *       8 * length), so the loop is seamless at any text length. The marquee starts over (offset 0, text from its first
+ *       column) whenever the song number, the header texts (name / author / released / song count) or
+ *       the tune change, which includes the time running backwards (a tune LOADed and RUN while the
+ *       screen stayed up, or a song restarted). TIME changes every second
  *       inside the running text: the text is rebuilt (same length) and the drawn range is
  *       redrawn at the same scroll offset and text position, so the scroll neither jumps nor
  *       restarts. Both pages use the same offset.

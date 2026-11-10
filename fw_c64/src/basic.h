@@ -40,7 +40,9 @@
  *     RETURN -> CR LF, DEL -> BS SP BS, CLR -> CR LF, colour / reverse / cursor / home /
  *     insert codes -> nothing. When a line was edited with cursor, home, insert or delete
  *     keys, RETURN first sends CR LF and the logical line as executed. The now-playing
- *     screen sends NAME / AUTHOR / RELEASED / SONG nn/mm on open and on song change, and
+ *     screen sends NAME / AUTHOR / RELEASED / SONG nn/mm on open and SONG nn/mm on song change (the
+ *     screen also reads the header again and redraws name / author / released, each field blanked
+ *     first so a shorter text leaves nothing behind), and
  *     "\rTIME mm:ss" whenever the shown time changes (no voice bars); closing ends the line
  *     with CR LF before BREAK / READY.
  * Headers hold contracts and constants; per-function commentary lives in the .c files.

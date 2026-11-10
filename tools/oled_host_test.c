@@ -65,13 +65,17 @@ static uint8_t lane(uint32_t page, uint32_t vcol)
 static uint32_t g_ms;
 static uint8_t  g_lvl[BASIC_VOICES];
 static uint32_t g_song = 1u;
+static char     g_nm[33] = "AB";
+static char     g_au[33] = "CD";
+static char     g_rl[33] = "1985";
+static uint32_t g_songs = 3u;
 static void f_info(basic_tune_info_t *i)
 {
     memset(i, 0, sizeof(*i));
-    strcpy(i->name, "AB");
-    strcpy(i->author, "CD");
-    strcpy(i->released, "1985");
-    i->songs = 3u;
+    strcpy(i->name, g_nm);
+    strcpy(i->author, g_au);
+    strcpy(i->released, g_rl);
+    i->songs = g_songs;
     i->start_song = g_song;
 }
 static uint32_t f_elapsed(void) { return g_ms; }
@@ -222,13 +226,56 @@ static void test_marquee(void)
     CHECK(g_scroll[0] == ((before + 1u) & 511u), "scroll continues after the time update");
     CHECK(window_matches("AB  *  CD  *  1985  *  SONG 01/03  *  TIME 00:16  *  ", s0 + 1u), "continues seamlessly");
 
-    /* Song change restarts the time but not the scroll. */
-    before = g_scroll[0];
+    /* Song change: the time restarts and the marquee starts over with the new text. */
+    CHECK(before != 0u, "scroll is away from 0 before the song change");
     g_song = 2u;
     g_ms = 0u;
     oled_ui_poll(1, 100u + 1501u, 0u);
-    CHECK(g_scroll[0] == before, "song change keeps the scroll offset");
-    CHECK(window_matches("AB  *  CD  *  1985  *  SONG 02/03  *  TIME 00:00  *  ", s0 + 1u), "song change text");
+    CHECK(g_scroll[0] == 0u && g_scroll[1] == 0u, "song change restarts the marquee at offset 0");
+    CHECK(window_matches("AB  *  CD  *  1985  *  SONG 02/03  *  TIME 00:00  *  ", 0u), "song change text from column 0");
+    for (uint32_t f = 1u; f <= 40u; f++) {
+        oled_ui_poll(1, 100u + 1501u + f, 0u);
+    }
+    CHECK(g_scroll[0] == 40u && window_matches("AB  *  CD  *  1985  *  SONG 02/03  *  TIME 00:00  *  ", 40u),
+          "the new marquee scrolls on from column 0");
+    CHECK(strstr("AB  *  CD  *  1985  *  SONG 02/03", "02/03") != NULL, "sanity");
+
+    /* Same song number again after a restart of the time (the song was started over): restart. */
+    g_ms = 5000u;
+    oled_ui_poll(1, 100u + 1541u, 0u);
+    g_ms = 0u;
+    oled_ui_poll(1, 100u + 1541u, 0u);
+    CHECK(g_scroll[0] == 0u, "time running backwards restarts the marquee");
+
+    /* Tune switch while the playing screen stays up (LOAD + RUN between two polls): the header texts
+     * change, the song number stays 1. Longer text, then a shorter one: no leftover of the old. */
+    g_song = 1u;
+    g_ms = 3000u;
+    oled_ui_poll(1, 100u + 1542u, 0u);
+    for (uint32_t f = 1u; f <= 30u; f++) {
+        oled_ui_poll(1, 100u + 1542u + f, 0u);
+    }
+    CHECK(g_scroll[0] == 30u, "scrolling again");
+    strcpy(g_nm, "A LONGER TUNE NAME");
+    strcpy(g_au, "SOMEBODY ELSE");
+    strcpy(g_rl, "1991 NEW");
+    g_songs = 12u;
+    oled_ui_poll(1, 100u + 1572u, 0u);
+    CHECK(g_scroll[0] == 0u, "tune switch restarts the marquee at offset 0");
+    CHECK(window_matches("A LONGER TUNE NAME  *  SOMEBODY ELSE  *  1991 NEW  *  SONG 01/12  *  TIME 00:03  *  ", 0u),
+          "tune switch: the new header and song count, nothing of the old text");
+    strcpy(g_nm, "X");
+    strcpy(g_au, "");
+    strcpy(g_rl, "");
+    g_songs = 1u;
+    g_ms = 3000u;
+    oled_ui_poll(1, 100u + 1573u, 0u);
+    CHECK(g_scroll[0] == 0u, "second tune switch restarts again");
+    CHECK(window_matches("X  *  SONG 01/01  *  TIME 00:03  *  ", 0u), "shorter header: no leftover characters");
+    strcpy(g_nm, "AB");
+    strcpy(g_au, "CD");
+    strcpy(g_rl, "1985");
+    g_songs = 3u;
 }
 
 static void test_bars(void)

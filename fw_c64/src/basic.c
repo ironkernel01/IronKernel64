@@ -1094,6 +1094,42 @@ static uint32_t np_number(char *out, uint32_t v)
 }
 
 /*
+ * np_field -- write a value into the field area of a row: the whole area is blanked first, so a
+ *   shorter text leaves no character of the previous one behind.
+ * Returns: nothing.
+ */
+static void np_field(uint32_t row, const char *s, uint8_t colour)
+{
+    for (uint32_t c = BASIC_FIELD_COL; c < BASIC_COLS; c++) {
+        c64screen_put(row, c, C64SCREEN_SPACE, colour);
+    }
+    np_text(row, BASIC_FIELD_COL, s, BASIC_FIELD_CELLS, colour);
+}
+
+/*
+ * np_read_info -- read the header texts of the loaded SID again from the player.
+ * Returns: nothing; g_tune holds NUL-terminated name, author, released and the song count.
+ */
+static void np_read_info(void)
+{
+    g_cfg.player->info(&g_tune);
+    g_tune.name[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+    g_tune.author[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+    g_tune.released[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+}
+
+/*
+ * np_show_header -- draw name, author and released of g_tune (each field area blanked first).
+ * Returns: nothing.
+ */
+static void np_show_header(void)
+{
+    np_field(NP_ROW_NAME, g_tune.name, VIDEO_COL_WHITE);
+    np_field(NP_ROW_AUTHOR, g_tune.author, VIDEO_COL_WHITE);
+    np_field(NP_ROW_RELEASED, g_tune.released, VIDEO_COL_WHITE);
+}
+
+/*
  * np_update -- refresh song number, time and the three voice bars.
  * Steps:
  *   1. SONG nn/mm; TIME mm:ss from player->elapsed_ms. The UART gets "\rTIME mm:ss" only
@@ -1114,12 +1150,12 @@ static void np_update(void)
     n += np_number(&buf[n], g_tune.songs);
     buf[n++] = ' ';
     buf[n] = '\0';
-    np_text(NP_ROW_SONG, BASIC_FIELD_COL, buf, BASIC_FIELD_CELLS, C64SCREEN_BOOT_TEXT);
+    np_field(NP_ROW_SONG, buf, C64SCREEN_BOOT_TEXT);
     n = np_number(buf, secs / BASIC_S_PER_MIN);
     buf[n++] = ':';
     n += np_number(&buf[n], secs % BASIC_S_PER_MIN);
     buf[n] = '\0';
-    np_text(NP_ROW_TIME, BASIC_FIELD_COL, buf, BASIC_FIELD_CELLS, C64SCREEN_BOOT_TEXT);
+    np_field(NP_ROW_TIME, buf, C64SCREEN_BOOT_TEXT);
     if (secs != g_np_secs) {
         g_np_secs = secs;
         uart_str("\rTIME ");
@@ -1203,10 +1239,7 @@ static void np_open(void)
     }
     np_text(NP_ROW_HELP, 0u, " +/- 1-9 SONG     X KEY TO BREAK", BASIC_COLS,
             VIDEO_COL_LIGHT_GREY);
-    np_text(NP_ROW_NAME, BASIC_FIELD_COL, g_tune.name, BASIC_FIELD_CELLS, VIDEO_COL_WHITE);
-    np_text(NP_ROW_AUTHOR, BASIC_FIELD_COL, g_tune.author, BASIC_FIELD_CELLS, VIDEO_COL_WHITE);
-    np_text(NP_ROW_RELEASED, BASIC_FIELD_COL, g_tune.released, BASIC_FIELD_CELLS,
-            VIDEO_COL_WHITE);
+    np_show_header();
     np_mirror_text("NAME ", g_tune.name);
     np_mirror_text("AUTHOR ", g_tune.author);
     np_mirror_text("RELEASED ", g_tune.released);
@@ -1243,13 +1276,16 @@ static void np_close(void)
 }
 
 /*
- * np_select -- switch to another song when it exists (and mirror the new SONG line).
+ * np_select -- switch to another song when it exists: read the header of the loaded SID again,
+ *   redraw name / author / released and mirror the new SONG line (the player restarts the time).
  * Returns: nothing.
  */
 static void np_select(uint32_t song)
 {
     if (song >= 1u && song <= g_tune.songs && g_cfg.player->select_song(song) == 0) {
         g_song = song;
+        np_read_info();
+        np_show_header();
         np_mirror_song();
     }
 }
@@ -1311,10 +1347,7 @@ static int cmd_run(void)
     case BASIC_PLAYER_NO_PLAY:    print_error("NO PLAY ADDRESS"); return 0;
     default:                      print_error("PLAYER"); return 0;
     }
-    g_cfg.player->info(&g_tune);
-    g_tune.name[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
-    g_tune.author[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
-    g_tune.released[BASIC_TUNE_TEXT_BYTES - 1u] = '\0';
+    np_read_info();
     g_song = (g_tune.start_song >= 1u) ? g_tune.start_song : 1u;
     g_state = BASIC_STATE_PLAYING;
     np_open();

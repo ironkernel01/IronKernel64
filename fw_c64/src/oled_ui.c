@@ -57,6 +57,7 @@ static uint32_t g_mq_off;            /* marquee scroll register value (ring posi
 static uint32_t g_bar_len[BASIC_VOICES];   /* bar lengths drawn */
 static uint32_t g_secs = 0xFFFFFFFFu;
 static uint32_t g_song_shown = 0xFFFFFFFFu;
+static basic_tune_info_t g_tune_shown;   /* header texts the marquee was built from */
 
 /*
  * ui_copy -- append a string to a buffer (bounded).
@@ -325,6 +326,36 @@ static void ui_bars_update(const uint8_t level[BASIC_VOICES])
 }
 
 /*
+ * ui_marquee_restart -- start the marquee over with the text of this tune and song.
+ * Steps: forget the old text, scroll position and ring offset (both marquee pages to 0), build
+ *   and draw the new text from its first column.
+ * Returns: nothing.
+ */
+static void ui_marquee_restart(const basic_tune_info_t *info, uint32_t song, uint32_t secs)
+{
+    g_text_len = 0u;
+    g_text[0] = '\0';
+    g_s0 = 0u;
+    g_mq_off = 0u;
+    oled_set_scroll(UI_PAGE_MQ_TOP, 0u);
+    oled_set_scroll(UI_PAGE_MQ_BOT, 0u);
+    ui_mq_set(info, song, secs);
+    g_tune_shown = *info;
+    g_secs = secs;
+    g_song_shown = song;
+}
+
+/*
+ * ui_tune_changed -- do the header texts differ from the ones the marquee shows?
+ * Returns: 1 when name, author, released or the song count changed.
+ */
+static int ui_tune_changed(const basic_tune_info_t *info)
+{
+    return (strcmp(info->name, g_tune_shown.name) != 0 || strcmp(info->author, g_tune_shown.author) != 0 ||
+            strcmp(info->released, g_tune_shown.released) != 0 || info->songs != g_tune_shown.songs) ? 1 : 0;
+}
+
+/*
  * ui_enter_playing -- now-playing screen: double-height marquee (pages 0-1), empty bars.
  * Returns: nothing.
  */
@@ -338,16 +369,10 @@ static void ui_enter_playing(void)
     for (uint32_t p = 0u; p < OLED_PAGES; p++) {
         oled_set_scroll(p, 0u);
     }
-    g_text_len = 0u;
-    g_text[0] = '\0';
-    g_s0 = 0u;
-    g_mq_off = 0u;
     for (uint32_t v = 0u; v < BASIC_VOICES; v++) {
         g_bar_len[v] = 0u;
     }
-    ui_mq_set(&info, info.start_song, secs);
-    g_secs = secs;
-    g_song_shown = info.start_song;
+    ui_marquee_restart(&info, info.start_song, secs);
     g_mode = UI_PLAYING;
 }
 
@@ -426,9 +451,10 @@ void oled_ui_poll(int playing, uint32_t frame, uint32_t now_ms)
         basic_tune_info_t info;
 
         g_player->info(&info);   /* the song number follows select_song, which restarts the time */
-        if (secs != g_secs || info.start_song != g_song_shown) {
+        if (info.start_song != g_song_shown || ui_tune_changed(&info) || secs < g_secs) {
+            ui_marquee_restart(&info, info.start_song, secs);   /* other song or tune: new text from column 0 */
+        } else if (secs != g_secs) {
             g_secs = secs;
-            g_song_shown = info.start_song;
             ui_mq_set(&info, info.start_song, secs);
         }
     }
