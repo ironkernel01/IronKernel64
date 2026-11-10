@@ -13,10 +13,16 @@
  *   and its seq goes back through the mailbox.
  * Data: READ goes through a static staging buffer in DDR3 (backend reads are
  *   cached DDR3 writes) and is copied to the uncached BRAM data area in words.
+ * Devices: 8 is the SMB share (ready flag from main), 9 the tune bank (backend_ram, ready when the
+ *   bank image validates; no network involved). cbmdos_select switches backend and directory
+ *   header before each request. Any other device number is answered 74.
+ * Idle: drive_server_idle lets the blocking waits of the bring-up (network wait loops, SMB mount
+ *   retries) keep device 9 alive; it does nothing while a request is being served.
  * Log: one line per OPEN, CMD, failure and file end (never credentials).
  */
 #include "drive_server.h"
 
+#include "backend_ram.h"
 #include "cbmdos.h"
 #include "drive_log.h"
 #include "drive_proto.h"
@@ -43,6 +49,10 @@ _Static_assert((DRIVE_DATA_OFS % DS_WORD_BYTES) == 0u, "data area must be word a
 static XMbox    g_mbox;
 static int      g_up;                        /* mailbox initialised */
 static int      g_ready;
+static int      g_busy;                      /* a request is being served (idle hook must not re-enter) */
+static int      g_bank_ok;                   /* last bank validation passed */
+static const backend_ops_t *g_smb;
+static const backend_ops_t *g_bank;
 static uint8_t  g_stage[DRIVE_DATA_BYTES];   /* READ staging (DDR3) */
 
 typedef struct
@@ -63,16 +73,20 @@ static inline void ds_fence(void)
  *   1. XMbox lookup and init for the S1 interface (a failure is logged and the
  *      server stays disabled: poll then does nothing).
  *   2. Reset this interface's FIFOs (drops doorbells of an earlier run).
- *   3. cbmdos_init with the backend; not ready.
+ *   3. cbmdos_init with the share backend (device 8, not ready); device 9's backend is kept.
  * Returns: nothing.
  */
-void drive_server_init(const backend_ops_t *ops)
+void drive_server_init(const backend_ops_t *smb_ops, const backend_ops_t *bank_ops)
 {
     XMbox_Config *cfg = XMbox_LookupConfig(DS_MBOX_BASE);
 
     g_ready = 0;
     g_up = 0;
-    cbmdos_init(ops);
+    g_busy = 0;
+    g_bank_ok = 0;
+    g_smb = smb_ops;
+    g_bank = bank_ops;
+    cbmdos_init(smb_ops);
     if (cfg == NULL || XMbox_CfgInitialize(&g_mbox, cfg, cfg->BaseAddress) != XST_SUCCESS) {
         drive_log_printf("DRV: mailbox init FAILED\r\n");
         return;
@@ -98,6 +112,22 @@ void drive_server_set_ready(int ready)
 int drive_server_ready(void)
 {
     return g_ready;
+}
+
+/*
+ * drive_server_idle -- take a request from inside a bring-up wait loop.
+ * Context: called by the network wait loops (ik64_sock poll, SMB mount retry, log-space wait).
+ *   While device 8 is not ready every device 8 request is answered 74 without touching the
+ *   backend, and device 9 only touches backend_ram, so serving here cannot disturb the SMB
+ *   session being brought up. While a request is already being served (the SMB read that is
+ *   waiting in poll) it returns at once.
+ * Returns: nothing.
+ */
+void drive_server_idle(void)
+{
+    if (!g_busy) {
+        drive_server_poll();
+    }
 }
 
 /*
@@ -154,14 +184,38 @@ static void log_name(const char *name, char *out, uint32_t size)
 }
 
 /*
+ * select_device -- point cbmdos at the device's backend and decide whether it can serve.
+ * Steps:
+ *   1. Device 8: the ready flag from main. Device 9: backend_ram_mount re-validates the bank on
+ *      every OPEN and PING; other requests (READ, CLOSE, CMD, STATUS) use the state it left.
+ *   2. Any other number: not served.
+ * Returns: 1 when requests of this device can be served now, else 0.
+ */
+static int select_device(uint8_t device, uint8_t op)
+{
+    if (device == DRIVE_DEVICE_SMB) {
+        cbmdos_select(g_smb, CBMDOS_LABEL_NET);
+        return g_ready;
+    }
+    if (device == DRIVE_DEVICE_BANK) {
+        cbmdos_select(g_bank, CBMDOS_LABEL_ROM);
+        if (op == DRIVE_OP_OPEN || op == DRIVE_OP_PING) {
+            g_bank_ok = (backend_ram_mount() == BACKEND_OK) ? 1 : 0;
+        }
+        return g_bank_ok;
+    }
+    return 0;
+}
+
+/*
  * dispatch -- run one request.
  * Steps:
- *   1. Not ready: 74 for everything except CLOSE (which only tidies cbmdos).
+ *   1. Device not servable (select_device): 74 for everything except CLOSE (which only tidies cbmdos).
  *   2. PING: OK. OPEN, READ (into the staging buffer), CLOSE, CMD, STATUS: cbmdos.
  *   3. A backend failure inside cbmdos clears ready.
  * Returns: nothing; r is set.
  */
-static void dispatch(uint8_t op, uint8_t ch, uint32_t want, const char *name, ds_result_t *r)
+static void dispatch(uint8_t device, uint8_t op, uint8_t ch, uint32_t want, const char *name, ds_result_t *r)
 {
     char shown[DRIVE_NAME_BYTES];
 
@@ -169,7 +223,7 @@ static void dispatch(uint8_t op, uint8_t ch, uint32_t want, const char *name, ds
     r->eoi = 0u;
     r->len = 0u;
     log_name(name, shown, sizeof(shown));
-    if (!g_ready && op != DRIVE_OP_CLOSE) {
+    if (!select_device(device, op) && op != DRIVE_OP_CLOSE) {
         r->status = DRIVE_ST_DRIVE_NOT_READY;
         return;
     }
@@ -178,7 +232,7 @@ static void dispatch(uint8_t op, uint8_t ch, uint32_t want, const char *name, ds
         break;
     case DRIVE_OP_OPEN:
         r->status = cbmdos_open(ch, name);
-        drive_log_printf("DRV: OPEN %u \"%s\" -> %s\r\n", (unsigned)ch, shown,
+        drive_log_printf("DRV: OPEN %u,%u \"%s\" -> %s\r\n", (unsigned)device, (unsigned)ch, shown,
                          (r->status == CBMDOS_OK) ? cbmdos_info() : cbmdos_text(r->status));
         break;
     case DRIVE_OP_READ: {
@@ -216,7 +270,7 @@ static void dispatch(uint8_t op, uint8_t ch, uint32_t want, const char *name, ds
         drive_log_printf("DRV: unknown op %u\r\n", (unsigned)op);
         break;
     }
-    if (cbmdos_take_backend_lost()) {
+    if (cbmdos_take_backend_lost() && device == DRIVE_DEVICE_SMB) {
         drive_log_printf("DRV: backend lost, drive not ready until remount\r\n");
         drive_server_set_ready(0);
     }
@@ -243,6 +297,7 @@ void drive_server_poll(void)
     uint32_t want;
     uint8_t op;
     uint8_t ch;
+    uint8_t device;
 
     if (!g_up || XMbox_IsEmpty(&g_mbox)) {
         return;
@@ -260,13 +315,16 @@ void drive_server_poll(void)
     }
     op = Xil_In8(DS_REQ_BASE + offsetof(drive_req_t, op));
     ch = Xil_In8(DS_REQ_BASE + offsetof(drive_req_t, channel));
+    device = Xil_In8(DS_REQ_BASE + offsetof(drive_req_t, device));
     want = Xil_In32(DS_REQ_BASE + offsetof(drive_req_t, len));
     for (uint32_t i = 0u; i < DRIVE_NAME_BYTES; i++) {
         name[i] = (char)Xil_In8(DS_REQ_BASE + offsetof(drive_req_t, name) + i);
     }
     name[DRIVE_NAME_BYTES - 1u] = '\0';
 
-    dispatch(op, ch, want, name, &r);
+    g_busy = 1;
+    dispatch(device, op, ch, want, name, &r);
+    g_busy = 0;
     if (r.len > 0u) {
         put_data(r.len);
     }

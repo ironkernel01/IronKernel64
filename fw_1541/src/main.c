@@ -12,7 +12,9 @@
  *   logged and retried, never silent):
  *   1. drive_log_init, banner (build ID and git hash from the board system
  *      registers, node MAC), caches.
- *   2. ik64_net_init: PHY, MAC, node MAC, DHCP leaf, CPU path, DMA, lwIP.
+ *   2. Drive server up with both backends (device 8 SMB, device 9 tune bank): device 9 answers from
+ *      here on, without the network; every wait loop below services it (drive_server_idle).
+ *   2b. ik64_net_init: PHY, MAC, node MAC, DHCP leaf, CPU path, DMA, lwIP.
  *   3. LINK: log link state once per second (every 10 s after
  *      MAIN_LINK_FAST_MS) until the PHY link is up.
  *   4. LEASE (NETSHARE_IP_DHCP): log once per second (every 10 s after
@@ -34,6 +36,7 @@
  *   are empty macros on this CPU); main invalidates both once, because the ELF
  *   was written to DDR3 by the JTAG loader behind the caches.
  */
+#include "backend_ram.h"
 #include "backend_smb.h"
 #include "drive_log.h"
 #include "drive_server.h"
@@ -67,6 +70,7 @@ typedef enum
 } phase_t;
 
 static const backend_ops_t g_smb_ops = BACKEND_OPS(smb);
+static const backend_ops_t g_ram_ops = BACKEND_OPS(ram);
 
 static phase_t  g_phase;
 static uint32_t g_phase_t0;        /* uptime (ms) when the phase was entered */
@@ -97,7 +101,7 @@ static void enter(phase_t p, uint32_t now)
 /*
  * wait_log_space -- let core 0 drain the ring before a long listing overruns it.
  * Steps:
- *   1. While less than DRIVE_LOG_LINE_BYTES are free, service the network,
+ *   1. While less than DRIVE_LOG_LINE_BYTES are free, service the network and the drive server,
  *      for at most MAIN_LOG_SPACE_WAIT_MS; then log anyway (the line is
  *      dropped and counted by the ring, never blocking).
  * Returns: nothing.
@@ -109,6 +113,7 @@ static void wait_log_space(void)
     while ((drive_log_free_bytes() < DRIVE_LOG_LINE_BYTES) &&
            ((uint32_t)((uint32_t)ik64_uptime_ms64() - t0) < MAIN_LOG_SPACE_WAIT_MS)) {
         ik64_net_service();
+        drive_server_idle();
     }
 }
 
@@ -310,7 +315,8 @@ int main(void)
                      mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], NETSHARE_SERVER, NETSHARE_SHARE);
 
     (void)backend_smb_init();
-    drive_server_init(&g_smb_ops);
+    (void)backend_ram_init();
+    drive_server_init(&g_smb_ops, &g_ram_ops);
     if (ik64_net_init(&g_net_cfg) != 0) {
         drive_log_printf("MAIN: network bring-up incomplete, continuing (the monitor keeps retrying the link)\r\n");
     }

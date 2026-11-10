@@ -47,12 +47,21 @@
 #define C64_PLAT_DDR_WINDOW      (0x20000000u)  /* 512 MiB */
 
 /* DDR3 partition between the cores (firmware convention, not hardware):
- *   [0x8000_0000, +64 MiB)  core 1 code/data/heap pools (lwIP, libsmb2)
+ *   [0x8000_0000, +64 MiB)  core 1 code/data/heap pools (lwIP, libsmb2); its top
+ *                           C64_PLAT_BANK_SIZE bytes are the tune bank (below)
  *   [0x8400_0000, +64 MiB)  core 0 reserved (bring-up RAM-disk bank, register logs)
  *   rest                    free (reported as BYTES FREE on the boot screen)   */
 #define C64_PLAT_DDR_CORE1_BASE  (0x80000000u)
 #define C64_PLAT_DDR_CORE1_SIZE  (0x04000000u)
 #define C64_PLAT_DDR_CORE0_BASE  (0x84000000u)
 #define C64_PLAT_DDR_CORE0_SIZE  (0x04000000u)
+
+/* Device 9 tune bank (fw_1541/src/bank_format.h image), loaded by JTAG (scripts/load_bank.ps1,
+ * jtag_load.ps1 -Bank) or later copied from QSPI. It sits at the top of the core 1 partition:
+ * fw_1541/build.ps1 reads these two defines, shortens the linker's ddr3 region by the bank size
+ * and leaves the bank out of every output section, so the ELF download never touches it and the
+ * C runtime never clears it. tools/mkbank.py reads C64_PLAT_BANK_SIZE too. */
+#define C64_PLAT_BANK_BASE       (0x83F00000u)
+#define C64_PLAT_BANK_SIZE       (0x00100000u)  /* 1 MiB */
 
 #endif /* C64_PLATFORM_H */

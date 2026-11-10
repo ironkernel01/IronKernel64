@@ -4,12 +4,16 @@
  *
  * File: drive_client.h
  * Role: core 0 side of the drive protocol (common/drive_proto.h): requests to the emulated
- *   1541 (device 8) on core 1 through the shared BRAM and the AXI Mailbox doorbell.
+ *   1541 (device 8, the network share, or device 9, the built-in tune bank) on core 1 through the shared BRAM and the AXI Mailbox doorbell.
  *
  * Ownership: drive_client.c is the only core 0 file that touches the mailbox (mailbox_0,
  *   XMbox driver) and the shared BRAM (C64_PLAT_SHM_BASE). Peer: fw_1541 drive_server.c.
  *
  * Contract:
+ *   - Every request goes to the current device (drive_client_set_device; 8 at start, 9 is the
+ *     tune bank). drive_client_ping_device probes a named device without changing it. Only
+ *     DRIVE_DEVICE_SMB and DRIVE_DEVICE_BANK are accepted; the BASIC layer rejects other numbers
+ *     with ?DEVICE NOT PRESENT before it gets here.
  *   - One request at a time, synchronous: every call returns after the reply or after its
  *     timeout. DRIVE_CLIENT_PING_TIMEOUT_MS bounds PING; DRIVE_CLIENT_OP_TIMEOUT_MS bounds
  *     every other request (the drive may reconnect to the network share first).
@@ -45,6 +49,9 @@ typedef enum
 } drive_client_result_t;
 
 void     drive_client_init(void);
+void     drive_client_set_device(uint8_t device);
+uint8_t  drive_client_device(void);
+drive_client_result_t drive_client_ping_device(uint8_t device);
 drive_client_result_t drive_client_ping(void);
 drive_client_result_t drive_client_open(uint8_t channel, const char *name);
 drive_client_result_t drive_client_read(uint8_t channel, uint8_t *buf, uint32_t max,

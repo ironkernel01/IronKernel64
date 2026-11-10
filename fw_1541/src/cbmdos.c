@@ -28,6 +28,8 @@
 #define CBMDOS_INFO_BYTES        (96u)
 #define CBMDOS_INFO_NAME_MAX     (48u)
 
+static void close_channel(void);
+
 typedef enum
 {
     CH_CLOSED = 0,
@@ -36,6 +38,7 @@ typedef enum
 } ch_kind_t;
 
 static const backend_ops_t *g_ops;
+static const char *g_label = CBMDOS_LABEL_NET;   /* 16-character disk name of the directory header */
 static uint8_t  g_dir[CBMDOS_DIR_BYTES];
 static uint32_t g_dir_len;
 static ch_kind_t g_kind;
@@ -55,12 +58,32 @@ static char     g_info[CBMDOS_INFO_BYTES];
 void cbmdos_init(const backend_ops_t *ops)
 {
     g_ops = ops;
+    g_label = CBMDOS_LABEL_NET;
     g_kind = CH_CLOSED;
     g_file_open = 0;
     g_file_done = 0;
     g_status = CBMDOS_OK;
     g_lost = 0;
     g_info[0] = '\0';
+}
+
+/*
+ * cbmdos_select -- switch to another device's backend and directory header.
+ * Steps:
+ *   1. Same backend: only the label is set (the open channel stays).
+ *   2. Otherwise the open channel is closed through the old backend, so no handle leaks, and
+ *      the new backend and the 16-character disk name label take over.
+ * Returns: nothing.
+ */
+void cbmdos_select(const backend_ops_t *ops, const char *label)
+{
+    if (ops == g_ops) {
+        g_label = label;
+        return;
+    }
+    close_channel();
+    g_ops = ops;
+    g_label = label;
 }
 
 /*
@@ -368,7 +391,7 @@ static void dir_entry(const backend_dirent_t *e)
 /*
  * dir_build -- build the directory program for a pattern.
  * Steps:
- *   1. Load address, header line (reverse "IRONKERNEL NET  " 64 2A).
+ *   1. Load address, header line (reverse, the backend's 16-character label, 64 2A).
  *   2. opendir "" and readdir to the end; files and directories whose
  *      truncated PETSCII name matches become lines while the footer still fits.
  *   3. Footer "BLOCKS FREE." (a failed free-space query shows 0) and the two
@@ -377,7 +400,6 @@ static void dir_entry(const backend_dirent_t *e)
  */
 static uint8_t dir_build(const uint8_t *pat)
 {
-    static const char hdr[] = "\x12\"IRONKERNEL NET  \" 64 2A";
     static const char foot[] = "BLOCKS FREE.             ";
     uint8_t t[CBMDOS_LINE_TEXT_MAX];
     backend_dirent_t ent;
@@ -389,8 +411,15 @@ static uint8_t dir_build(const uint8_t *pat)
     g_dir[0] = (uint8_t)CBMDOS_LOAD_ADDR;
     g_dir[1] = (uint8_t)(CBMDOS_LOAD_ADDR >> 8);
     g_dir_len = 2u;
-    for (n = 0u; hdr[n] != '\0'; n++) {
-        t[n] = (uint8_t)hdr[n];
+    n = 0u;
+    t[n++] = 0x12u;                                  /* reverse on */
+    t[n++] = (uint8_t)'"';
+    for (uint32_t i = 0u; i < CBMDOS_NAME_CHARS; i++) {
+        t[n++] = (uint8_t)g_label[i];
+    }
+    t[n++] = (uint8_t)'"';
+    for (const char *id = " 64 2A"; *id != '\0'; id++) {
+        t[n++] = (uint8_t)*id;
     }
     dir_line(0u, t, n);
 

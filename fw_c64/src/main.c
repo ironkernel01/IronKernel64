@@ -175,7 +175,7 @@ static void platform_init(void)
  */
 static int drive_ready(void)
 {
-    return (drive_client_ping() == DRIVE_CLIENT_OK) ? 1 : 0;
+    return (drive_client_ping_device(DRIVE_DEVICE_SMB) == DRIVE_CLIENT_OK) ? 1 : 0;
 }
 
 /*
@@ -255,7 +255,9 @@ int main(void)
     cfg.load_buf_bytes = LOAD_BUF_BYTES;
     cfg.uart_out = outbyte;
     drive_client_init();
-    xil_printf("drive (device 8): %s\r\n", (drive_client_ping() == DRIVE_CLIENT_OK) ? "present" : "not answering");
+    xil_printf("drive (device 8): %s, tune bank (device 9): %s\r\n",
+               (drive_client_ping_device(DRIVE_DEVICE_SMB) == DRIVE_CLIENT_OK) ? "present" : "not answering",
+               (drive_client_ping_device(DRIVE_DEVICE_BANK) == DRIVE_CLIENT_OK) ? "present" : "not answering");
 
     Xil_ExceptionEnable();
     basic_init(&cfg);

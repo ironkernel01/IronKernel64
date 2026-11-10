@@ -13,9 +13,10 @@
 #include "backend_smb.h"
 
 #include "drive_log.h"     /* drive_log_printf */
+#include "drive_server.h"  /* drive_server_idle (device 9 keeps being served during the retry wait) */
 #include "drive_proto.h"   /* DRIVE_DATA_BYTES */
 
-#include "ik64_netcore.h" /* ik64_net_delay_ms */
+#include "ik64_netcore.h" /* ik64_net_service, ik64_uptime_ms64 */
 
 #include <stdint.h>            /* fixed-width types libsmb2's headers use */
 #include <time.h>              /* time_t: libsmb2's headers do not include it */
@@ -225,6 +226,21 @@ backend_status_t backend_smb_init(void)
 }
 
 /*
+ * retry_wait -- BACKEND_SMB_RETRY_DELAY_MS between mount attempts, servicing the network and the
+ *   drive server (device 9) the whole time.
+ * Returns: nothing.
+ */
+static void retry_wait(void)
+{
+    const uint32_t t0 = (uint32_t)ik64_uptime_ms64();
+
+    while ((uint32_t)((uint32_t)ik64_uptime_ms64() - t0) < BACKEND_SMB_RETRY_DELAY_MS) {
+        ik64_net_service();
+        drive_server_idle();
+    }
+}
+
+/*
  * backend_smb_mount -- connect to NETSHARE_SERVER and tree-connect the share.
  * Steps:
  *   1. Already mounted: BACKEND_OK.
@@ -268,7 +284,7 @@ backend_status_t backend_smb_mount(void)
         }
         st = BACKEND_ERR_NOT_READY;
         if ((attempt + 1u) < BACKEND_SMB_MOUNT_TRIES) {
-            ik64_net_delay_ms(BACKEND_SMB_RETRY_DELAY_MS);   /* IK64_DEVIATION 11: no RTOS delay */
+            retry_wait();   /* IK64_DEVIATION 11: no RTOS delay */
         }
     }
     return st;

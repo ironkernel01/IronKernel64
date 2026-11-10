@@ -7,6 +7,9 @@
  *   drive, device 8), carried in the shared 128 KiB BRAM with an AXI Mailbox
  *   doorbell.
  *
+ * Devices: 8 is the network share, 9 the built-in tune bank. Core 1 answers device 9 from boot, with or
+ *   without the network; an unknown device number is answered 74,DRIVE NOT READY.
+ *
  * Owner: this file. Peers that use it: fw_c64/src/drive_client.c (core 0, the
  *   only requester) and fw_1541/src/drive_server.c (core 1, the only server).
  *   The shared BRAM size is owned by fpga/bd/c64_bd.tcl (DRIVE_SHM_BYTES must
@@ -59,7 +62,9 @@
 #define DRIVE_MAGIC              (0x31353431u) /* "1541" */
 #define DRIVE_PROTO_VERSION      (1u)
 
-#define DRIVE_DEVICE             (8u)          /* the only device number */
+#define DRIVE_DEVICE_SMB         (8u)          /* the network share (backend_smb) */
+#define DRIVE_DEVICE_BANK        (9u)          /* the built-in tune bank in DDR3 (backend_ram), read-only */
+#define DRIVE_DEVICE             (DRIVE_DEVICE_SMB) /* default device when a command names none */
 #define DRIVE_NAME_BYTES         (128u)        /* PETSCII name or DOS command, NUL-terminated */
 #define DRIVE_STATUS_TEXT_BYTES  (48u)         /* "62,FILE NOT FOUND,00,00" style, NUL-terminated */
 
@@ -97,7 +102,7 @@ typedef struct
     uint32_t magic;                    /* DRIVE_MAGIC */
     uint32_t seq;                      /* increments per request; echoed in the reply */
     uint8_t  op;                       /* drive_op_t */
-    uint8_t  device;                   /* DRIVE_DEVICE */
+    uint8_t  device;                   /* DRIVE_DEVICE_SMB or DRIVE_DEVICE_BANK; other: 74 */
     uint8_t  channel;                  /* 0..15 */
     uint8_t  reserved0;
     uint32_t len;                      /* READ: bytes wanted (<= DRIVE_DATA_BYTES) */

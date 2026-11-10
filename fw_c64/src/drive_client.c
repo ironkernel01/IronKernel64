@@ -57,6 +57,7 @@ _Static_assert((DRIVE_DATA_OFS % DC_WORD_BYTES) == 0u, "data area must be word a
 
 static XMbox    g_mbox;
 static uint32_t g_seq;
+static uint8_t  g_device = DRIVE_DEVICE;          /* target of the requests: 8 or 9 */
 static uint32_t g_stale;                           /* timed-out requests whose reply may come */
 static uint8_t  g_last_status;
 static char     g_last_text[DRIVE_STATUS_TEXT_BYTES];
@@ -108,6 +109,7 @@ void drive_client_init(void)
     XMbox_ResetFifos(&g_mbox);
     g_seq = 0u;
     g_stale = 0u;
+    g_device = DRIVE_DEVICE;
     g_last_status = DRIVE_ST_OK;
     for (uint32_t i = 0u; i < DRIVE_STATUS_TEXT_BYTES; i++) {
         g_last_text[i] = '\0';
@@ -172,7 +174,7 @@ static int store_text(const char *text)
  * Steps:
  *   1. Read off waiting mailbox words (at most DC_DRAIN_MAX): late replies are dropped,
  *      anything else is a protocol fault.
- *   2. Fill the request block (magic, next seq, op, device 8, channel, len; the name was
+ *   2. Fill the request block (magic, next seq, op, current device, channel, len; the name was
  *      stored by the caller), fence, ring the doorbell with the seq. A full send FIFO
  *      means core 1 is not taking requests: DRIVE_CLIENT_TIMEOUT.
  *   3. Poll for the reply seq every DC_POLL_US for at most timeout_ms; drop late replies.
@@ -198,7 +200,7 @@ static drive_client_result_t transact(drive_op_t op, uint8_t channel, uint32_t l
     Xil_Out32(DC_REQ_BASE + offsetof(drive_req_t, magic), DRIVE_MAGIC);
     Xil_Out32(DC_REQ_BASE + offsetof(drive_req_t, seq), g_seq);
     Xil_Out8(DC_REQ_BASE + offsetof(drive_req_t, op), (uint8_t)op);
-    Xil_Out8(DC_REQ_BASE + offsetof(drive_req_t, device), (uint8_t)DRIVE_DEVICE);
+    Xil_Out8(DC_REQ_BASE + offsetof(drive_req_t, device), g_device);
     Xil_Out8(DC_REQ_BASE + offsetof(drive_req_t, channel), channel);
     Xil_Out8(DC_REQ_BASE + offsetof(drive_req_t, reserved0), 0u);
     Xil_Out32(DC_REQ_BASE + offsetof(drive_req_t, len), len);
@@ -246,7 +248,42 @@ static drive_client_result_t transact(drive_op_t op, uint8_t channel, uint32_t l
 }
 
 /*
- * drive_client_ping -- is the drive there?
+ * drive_client_set_device -- choose the device (8 or 9) that later requests address.
+ * Returns: nothing; any other number is ignored (the caller validated it).
+ */
+void drive_client_set_device(uint8_t device)
+{
+    if (device == DRIVE_DEVICE_SMB || device == DRIVE_DEVICE_BANK) {
+        g_device = device;
+    }
+}
+
+/*
+ * drive_client_device -- the device later requests address.
+ * Returns: 8 or 9.
+ */
+uint8_t drive_client_device(void)
+{
+    return g_device;
+}
+
+/*
+ * drive_client_ping_device -- PING one device without changing the current one.
+ * Returns: as drive_client_ping.
+ */
+drive_client_result_t drive_client_ping_device(uint8_t device)
+{
+    const uint8_t keep = g_device;
+    drive_client_result_t r;
+
+    drive_client_set_device(device);
+    r = drive_client_ping();
+    g_device = keep;
+    return r;
+}
+
+/*
+ * drive_client_ping -- is the current device there?
  * Returns: DRIVE_CLIENT_OK, or DRIVE_CLIENT_TIMEOUT after DRIVE_CLIENT_PING_TIMEOUT_MS.
  */
 drive_client_result_t drive_client_ping(void)

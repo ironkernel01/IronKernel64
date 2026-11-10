@@ -40,8 +40,10 @@ Exit codes (0 = success, prints FW_1541: PASS <elf> text/data/bss):
   41  image does not fit its memory region
 Usage: powershell -NoProfile -ExecutionPolicy Bypass -File fw_1541/build.ps1 [-Xsa <xsa>] [-Bsp]
 Environment: FW_1541_XILINX = install root (default C:\AMDDesignTools\2026.1).
-Revision: 11-09-2026
+Revision: 11-10-2026
   * 11-09-2026: initial version (replaces spike_build.ps1 for the no-RTOS design).
+  * 11-10-2026: tune bank reservation (device 9): the linker's ddr3 region ends below
+    C64_PLAT_BANK_BASE (read from common/c64_platform.h); backend_ram built in.
 -------------------------------------------------------------------------------
 #>
 param(
@@ -57,8 +59,12 @@ $Out     = if ($OutDir) { $OutDir.Replace('\', '/') } else { "$Repo/build/fw_154
 $Ws      = "$Out/bsp"
 $BspDir  = "$Ws/plt/microblaze_1/dom/bsp"
 $Obj     = "$Out/obj"
-$DdrBase = 0x80000000
+$DdrBase = 0x80000000L
 $DdrSize = 0x04000000
+# Tune bank (device 9): the top of the core 1 partition, defined once in common/c64_platform.h.
+$plat = Get-Content -LiteralPath "$Repo/common/c64_platform.h" -Raw
+$BankBase = [Convert]::ToInt64(([regex]::Match($plat, 'C64_PLAT_BANK_BASE\s+\(0x([0-9A-Fa-f]+)u\)')).Groups[1].Value, 16)
+$BankSize = [Convert]::ToInt64(([regex]::Match($plat, 'C64_PLAT_BANK_SIZE\s+\(0x([0-9A-Fa-f]+)u\)')).Groups[1].Value, 16)
 $BramBase = 0xC0000000
 $BramSize = 0x00020000
 $StackSize = '0x8000'
@@ -206,9 +212,16 @@ $cpu = @($march, $mabi, '-DSDT')
 
 # --- 2. linker script ---
 $ld = Get-Content -LiteralPath $LdTmpl -Raw
+if ($BankBase -ne ($DdrBase + $DdrSize - $BankSize) -or $BankSize -le 0) {
+    Stop-Build 2 "common/c64_platform.h: the bank (0x$($BankBase.ToString('X')) + 0x$($BankSize.ToString('X'))) must end at the top of the core 1 partition"
+}
+$DdrCode = $DdrSize - $BankSize
+# The ddr3 region stops below the bank: no section can be placed there, so the ELF download and the C runtime never touch it.
 $memory = "MEMORY`n{`n   ddr3 : ORIGIN = 0x{0}, LENGTH = 0x{1}`n   axi_bram : ORIGIN = 0x{2}, LENGTH = 0x{3}`n}`n" `
-    -replace '\{0\}', $DdrBase.ToString('X') -replace '\{1\}', $DdrSize.ToString('X') `
+    -replace '\{0\}', $DdrBase.ToString('X') -replace '\{1\}', $DdrCode.ToString('X') `
     -replace '\{2\}', $BramBase.ToString('X') -replace '\{3\}', $BramSize.ToString('X')
+$memory += "`n/* Tune bank (device 9), reserved by the region above ending short of it: loaded over JTAG, never in the ELF. */`n"
+$memory += "__ik64_bank_base = 0x$($BankBase.ToString('X'));`n__ik64_bank_size = 0x$($BankSize.ToString('X'));`n"
 $ld = $ld.Replace('@STACK_SIZE@', $StackSize).Replace('@HEAP_SIZE@', '0x0').Replace('@MEMORY_SECTION@', $memory)
 $ld = $ld.Replace('@CODE@', 'ddr3').Replace('@DATA@', 'ddr3')
 $ldFile = "$Out/lscript.ld"
@@ -240,7 +253,7 @@ $strict = @('-std=c11', '-Wall', '-Wextra', '-Werror')
 # ours
 $ourSrcs = @(Get-ChildItem -LiteralPath "$Fw/src" -Filter '*.c' | ForEach-Object { $_.FullName -replace '\\', '/' }) +
            @(Get-ChildItem -LiteralPath "$Fw/net" -Filter 'ik64_*.c' | ForEach-Object { $_.FullName -replace '\\', '/' })
-Compile-Group 'ik64' $ourSrcs ($strict + @('-pedantic', '-DIK64_BACKEND_SMB') + $ourInc + $lwipInc + $smbInc + $sysInc)
+Compile-Group 'ik64' $ourSrcs ($strict + @('-pedantic', '-DIK64_BACKEND_SMB', '-DIK64_BACKEND_RAM') + $ourInc + $lwipInc + $smbInc + $sysInc)
 # Network core: the prebuilt library joins the link below; the group keeps its row in the size table.
 $groups['netcore'] = @()
 # libsmb2, unmodified
@@ -309,7 +322,7 @@ Write-Output ('{0,-12} {1,10} {2,8} {3,10}' -f 'group', 'text+ro', 'data', 'bss'
 foreach ($g in @($groups.Keys) + @('newlib+bsp', 'strings')) {
     Write-Output ('{0,-12} {1,10} {2,8} {3,10}' -f $g, $kept[$g].text, $kept[$g].data, $kept[$g].bss)
 }
-Write-Output "ELF: text $($tot[0]) data $($tot[1]) bss $($tot[2]) total $used of DDR3 partition $DdrSize ($('{0:N1}' -f (100.0 * $used / $DdrSize)) %)"
-if ($used -gt $DdrSize) { Stop-Build 41 "image $used bytes exceeds the core 1 DDR3 partition ($DdrSize)" }
+Write-Output "ELF: text $($tot[0]) data $($tot[1]) bss $($tot[2]) total $used of DDR3 code region $DdrCode ($('{0:N1}' -f (100.0 * $used / $DdrCode)) %), bank 0x$($BankBase.ToString('X')) + $BankSize reserved"
+if ($used -gt $DdrCode) { Stop-Build 41 "image $used bytes exceeds the core 1 DDR3 code region ($DdrCode, partition $DdrSize minus the $BankSize byte bank)" }
 Write-Output "FW_1541: PASS $elf text/data/bss $($tot[0])/$($tot[1])/$($tot[2])"
 exit 0

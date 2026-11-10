@@ -4,9 +4,14 @@
 #   and run it (xsdb script). Adapted from RTLNet jtag_load_elf.tcl (hart
 #   selection by core index, DDR3 calibration wait through the c64 sysregs of
 #   the selected core, no RTLNet-specific CLK_STATUS address).
-# Usage: xsdb ik64_jtag_load.tcl <elf> <core 0|1> [dry]
+# Usage: xsdb ik64_jtag_load.tcl <elf> <core 0|1> [dry] [bank <bank.bin>]
 #   dry: print the xsdb command sequence instead of running it (no connect, no
 #   hardware access); runs under plain tclsh as well as under xsdb.
+#   bank <file> (core 1 only): after the ELF download and its verification, and before the pc is set
+#   and the core resumes, write the device 9 tune bank image (mkbank.py output) to DDR3 at
+#   C64_PLAT_BANK_BASE and verify words read back (ik64_bank_lib.tcl). The ELF never covers that
+#   region (fw_1541/build.ps1 ends the linker's ddr3 region below it); the firmware validates the
+#   bank at its first OPEN of device 9.
 # Overview:
 #   1. Parse the ELF (entry, PT_LOAD segments) in Tcl.
 #   2. connect; select the core's target: first by name (a target whose name
@@ -26,9 +31,10 @@
 # Cache note: core 1 runs from DDR3 behind 8 KiB write-through caches. The
 #   download goes around them, and rst -processor resets them; the firmware also
 #   invalidates both caches in main().
-# Revision: 11-09-2026
+# Revision: 11-10-2026
 #   * 11-09-2026: initial version (not run on hardware); -Core 1 path with DDR3
 #     calibration wait, name-based target selection and dry mode.
+#   * 11-10-2026: bank <file> option (device 9 tune bank, core 1); two words, since cmd splits at "=".
 # -----------------------------------------------------------------------------
 set SYS_BASE(0)     0x44000000
 set SYS_BASE(1)     0x44A00000
@@ -46,8 +52,25 @@ proc fail {msg} { puts "ik64_jtag: FAIL $msg"; exit 1 }
 if {[llength $argv] < 2} { fail "usage: xsdb ik64_jtag_load.tcl <elf> <core 0|1> \[dry\]" }
 set elf [file normalize [lindex $argv 0]]
 set core [lindex $argv 1]
-set dry [expr {[llength $argv] > 2 && [lindex $argv 2] eq "dry"}]
+set dry 0
+set bankfile ""
+# "bank <file>" is two words: xsdb.bat is a cmd batch file, and cmd splits arguments at '='.
+set opts [lrange $argv 2 end]
+for {set i 0} {$i < [llength $opts]} {incr i} {
+  set opt [lindex $opts $i]
+  if {$opt eq "dry"} {
+    set dry 1
+  } elseif {$opt eq "bank" && $i + 1 < [llength $opts]} {
+    incr i
+    set bankfile [file normalize [lindex $opts $i]]
+  } else {
+    fail "unknown option $opt"
+  }
+}
 if {$core ne "0" && $core ne "1"} { fail "core must be 0 or 1" }
+if {$bankfile ne "" && $core ne "1"} { fail "bank <file> is for core 1 (the drive core serves the bank)" }
+source [file join [file dirname [file normalize [info script]]] ik64_bank_lib.tcl]
+if {$bankfile ne ""} { set bank_img [bank_read_image $bankfile] }
 if {![file exists $elf]} { fail "ELF not found: $elf" }
 puts "ik64_jtag: elf $elf ([file size $elf] bytes), core $core[expr {$dry ? { (dry run: commands are printed, not executed)} : {}}]"
 
@@ -178,6 +201,12 @@ foreach seg $segs {
   }
 }
 puts "ik64_jtag: download verified ($nwords words in [llength $segs] segment(s))"
+
+# --- tune bank (device 9); the core is still halted at its reset vector ----------
+if {$bankfile ne ""} {
+  lassign [bank_geometry] bank_base bank_size
+  bank_write $bankfile $bank_img $bank_base $dry
+}
 
 # --- start at the ELF entry --------------------------------------------------
 if {$dry} {

@@ -7,6 +7,10 @@
 * (AMD lscript_mb_riscv.ld.in, Vitis 2026.1) with one addition: the .axi_bram
 * output section (RTLNet DMA buffers, network BRAM at 0xC000_0000, uncached).
 * Every other section goes to @DATA@/@CODE@ (core 1 DDR3 partition).
+* Tune bank (device 9): build.ps1 ends the ddr3 region C64_PLAT_BANK_SIZE bytes short of the
+* partition top (common/c64_platform.h); no output section can land in the bank, so the JTAG ELF
+* download never writes it. No NOLOAD section is declared for it. _end ends the zero-initialised
+* data (before heap, stack and .axi_bram), so the C runtime clear stops there (11-10-2026 fix).
 ******************************************************************************/
 
 _STACK_SIZE = DEFINED(_STACK_SIZE) ? _STACK_SIZE : @STACK_SIZE@;
@@ -192,6 +196,11 @@ _SDA_BASE_ = __sdata_start + ((__sbss_end - __sdata_start) / 2 );
 
 _SDA2_BASE_ = __sdata2_start + ((__sbss2_end - __sdata2_start) / 2 );
 
+/* End of the zero-initialised data. newlib's _start clears [__bss_start, _end), so _end must sit
+   here, before the heap, the stack and .axi_bram: placed after .axi_bram (0xC000_0000) it made that
+   clear run over all of DDR3 above the image, the tune bank and core 0's region included. */
+_end = .;
+
 /* Generate Stack and Heap definitions */
 
 .heap (NOLOAD) : {
@@ -217,5 +226,4 @@ _SDA2_BASE_ = __sdata2_start + ((__sbss2_end - __sdata2_start) / 2 );
 } > axi_bram
 
 __global_pointer$ = MIN(__sdata_start + 0x800, MAX(__data_start + 0x800, __bss_end - 0x800));
-_end = .;
 }

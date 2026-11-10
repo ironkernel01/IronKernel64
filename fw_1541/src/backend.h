@@ -7,8 +7,8 @@
  *   CBM-DOS emulation) reaches files only through this surface and never
  *   knows which backend serves them.
  *
- * Backends: backend_smb.c (network share, libsmb2), backend_ram.c (bring-up
- *   RAM disk in DDR3), later backend_sd.c (microSD + FatFs). Each backend
+ * Backends: backend_smb.c (network share, libsmb2), backend_ram.c (device 9, the
+ *   read-only tune bank in DDR3), later backend_sd.c (microSD + FatFs). Each backend
  *   implements every function below under the prefix backend_<name>_ (for
  *   example backend_smb_open). BACKEND_OPS(name) builds the dispatch table
  *   by token pasting, so a backend that lacks one entry point fails the

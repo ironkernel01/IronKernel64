@@ -24,25 +24,37 @@ Overview:
   * Without ironkernel/src and without the shared-machine folders no board lock
     is checked (nobody to share with); with the folders but without
     ironkernel/src the script refuses (exit 2).
+  * -Bank <bank.bin> (core 1 only): also writes the device 9 tune bank (tools/mkbank.py output) to DDR3 at
+    C64_PLAT_BANK_BASE after the ELF download and its verification and before the core resumes, and verifies
+    words read back (scripts/ik64_bank_lib.tcl). The core is reset and reloaded as always. To change the
+    bank without touching the running core use scripts/load_bank.ps1.
   * Output lines "ik64_jtag:" from xsdb are printed.
 Usage:
-  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/jtag_load.ps1 [-Elf <elf>] [-Core 0|1] [-DryRun]
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/jtag_load.ps1 [-Elf <elf>] [-Core 0|1] [-Bank <bank.bin>] [-DryRun]
 Exit codes: 0 PASS, 1 failure, 2 setup/lock error.
-Revision: 11-09-2026
+Revision: 11-10-2026
   * 11-09-2026: initial version.
   * 11-10-2026: tool paths from ik64_tools.ps1; coordination guard.
   * 11-09-2026: core 1 DDR3 image support (default ELF, calibration wait in the
     Tcl), -DryRun.
+  * 11-10-2026: -Bank (device 9 tune bank loaded between ELF download and resume).
 -------------------------------------------------------------------------------
 #>
 param(
     [string]$Elf = '',
     [ValidateSet(0, 1)][int]$Core = 0,
+    [string]$Bank = '',
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
 $tcl = Join-Path $PSScriptRoot 'ik64_jtag_load.tcl'
 $defaultElf = if ($Core -eq 1) { 'build/fw_1541/fw_1541.elf' } else { 'build/fw_c64/c64.elf' }
+$bankArg = @()
+if ($Bank) {
+    if ($Core -ne 1) { Write-Output 'IK64_BOARD: FAIL -Bank needs -Core 1 (the drive core serves the bank)'; exit 2 }
+    if (-not (Test-Path -LiteralPath $Bank)) { Write-Output "IK64_BOARD: FAIL missing bank image $Bank"; exit 1 }
+    $bankArg = @('bank', ((Resolve-Path -LiteralPath $Bank).Path -replace '\\', '/'))
+}
 
 if ($DryRun) {
     # Offline: no board lock, no hw_server, no xsdb. The Tcl script runs under plain tclsh in "dry" mode.
@@ -53,7 +65,7 @@ if ($DryRun) {
     $tclsh = (Get-Command tclsh -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     if (-not $tclsh -and (Test-Path 'C:\msys64\ucrt64\bin\tclsh.exe')) { $tclsh = 'C:\msys64\ucrt64\bin\tclsh.exe' }
     if (-not $tclsh) { Write-Output 'IK64_BOARD: FAIL no tclsh for -DryRun'; exit 2 }
-    $dryOut = & $tclsh $tcl ($Elf -replace '\\', '/') $Core 'dry' 2>&1 | Out-String
+    $dryOut = & $tclsh $tcl ($Elf -replace '\\', '/') $Core 'dry' @bankArg 2>&1 | Out-String
     $dryOut -split "`r?`n" | Where-Object { $_ -match '^ik64_jtag:' } | ForEach-Object { Write-Output $_ }
     if ($dryOut -match '(?m)^ik64_jtag: PASS') {
         Write-Output "IK64_BOARD: PASS dry run, core $Core, $Elf (no hardware touched)"
@@ -75,7 +87,7 @@ $xil = Get-Ik64Tools
 $xsdb = $xil.Xsdb
 if (-not (Test-Path -LiteralPath $xsdb)) { Write-Ik64Final 'FAIL' "no xsdb at $xsdb"; exit 1 }
 $ErrorActionPreference = 'Continue'
-$out = & $xsdb $tcl ($Elf -replace '\\', '/') $Core 2>&1 | Out-String
+$out = & $xsdb $tcl ($Elf -replace '\\', '/') $Core @bankArg 2>&1 | Out-String
 $ErrorActionPreference = 'Stop'
 $out -split "`r?`n" | Where-Object { $_ -match '^ik64_jtag:' } | ForEach-Object { Write-Output $_ }
 if ($out -match '(?m)^ik64_jtag: PASS') { Write-Ik64Final 'PASS' "core $Core loaded $Elf"; exit 0 }

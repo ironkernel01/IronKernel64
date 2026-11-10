@@ -37,6 +37,7 @@
 #include "ik64_sock.h"
 
 #include "ik64_netcore.h"  /* ik64_net_service, ik64_uptime_ms64 */
+#include "drive_server.h"  /* drive_server_idle: device 9 stays served while a connect waits */
 
 #include <stdarg.h>        /* va_list for fcntl */
 #include <stdlib.h>        /* strtoul */
@@ -372,6 +373,7 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 
     for (;;) {
         ik64_net_service();
+        drive_server_idle();
         ready = 0;
         for (i = 0u; i < nfds; i++) {
             fds[i].revents = (fds[i].fd == IK64_SOCK_FD) ? revents_now(fds[i].events) : (short)POLLNVAL;

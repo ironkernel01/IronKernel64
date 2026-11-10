@@ -32,6 +32,9 @@
  * One channel is open at a time; a new OPEN closes the previous one.
  * While the share is not mounted drive_server answers 74 to every request (OPEN, LOAD,
  * directory); core 0 prints ?DEVICE NOT PRESENT for it.
+ * Device 9: cbmdos_select switches the backend and the header label between requests
+ * (device 8 "IRONKERNEL NET  ", device 9 "IRONKERNEL ROM  "); the open channel of the
+ * previous device is closed first.
  * Backend failure (NOT_READY, IO, AUTH) answers 74,DRIVE NOT READY and raises
  * the lost flag that drive_server turns into "not ready" until main remounts.
  *
@@ -50,6 +53,10 @@
 /* Static directory image: about 1,000 entries of 32 bytes plus header and footer. */
 #define CBMDOS_DIR_BYTES         (32768u)
 
+/* 16-character disk names of the directory header, one per device. */
+#define CBMDOS_LABEL_NET         "IRONKERNEL NET  "   /* device 8 */
+#define CBMDOS_LABEL_ROM         "IRONKERNEL ROM  "   /* device 9 */
+
 /* DOS status codes returned by the calls below (1541 numbering). */
 #define CBMDOS_OK                (0u)
 #define CBMDOS_WRITE_PROTECT     (26u)
@@ -59,6 +66,7 @@
 #define CBMDOS_NOT_READY         (74u)
 
 void cbmdos_init(const backend_ops_t *ops);
+void cbmdos_select(const backend_ops_t *ops, const char *label);
 void cbmdos_abort(void);
 uint8_t cbmdos_open(uint8_t channel, const char *name);
 uint8_t cbmdos_read(uint8_t channel, uint8_t *out, uint32_t want, uint32_t *got, int *eoi);

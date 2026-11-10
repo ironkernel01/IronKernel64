@@ -161,6 +161,7 @@ static int      g_quote;
 static uint32_t g_insert;
 static int      g_edited;    /* cursor/insert/delete key used on the line since RETURN/CLR */
 static uint32_t g_load_len;
+static uint8_t  g_dev_last = DRIVE_DEVICE;   /* device of the last LOAD: the wedge uses it, like a C64 */
 static uint8_t  g_line[BASIC_LINE_MAX + 1u];
 static uint8_t  g_dir_chunk[BASIC_DIR_CHUNK];
 static char     g_status_text[DRIVE_STATUS_TEXT_BYTES];
@@ -832,7 +833,8 @@ static void print_dos_failure(drive_client_result_t r)
  * Steps:
  *   1. Parse the quoted name (closing quote optional), device (default 8) and secondary
  *      address; text after them is ignored.
- *   2. Device other than 8: ?DEVICE NOT PRESENT. Empty name: ?MISSING FILE NAME.
+ *   2. Device other than 8 (network share) or 9 (tune bank): ?DEVICE NOT PRESENT. Empty name:
+ *      ?MISSING FILE NAME. A valid device becomes the current one for this and later wedge use.
  *   3. Print SEARCHING FOR <name>, show it, PING (no answer: DEVICE NOT PRESENT) and OPEN
  *      channel 0 (DOS error: FILE NOT FOUND).
  *   4. Print LOADING, READ until EOI into the load buffer (bounded by its size), CLOSE.
@@ -873,10 +875,12 @@ static void cmd_load(const uint8_t *s, uint32_t i)
         print_error("MISSING FILE NAME");
         return;
     }
-    if (device != DRIVE_DEVICE) {
+    if (device != DRIVE_DEVICE_SMB && device != DRIVE_DEVICE_BANK) {
         print_error("DEVICE NOT PRESENT");
         return;
     }
+    g_dev_last = (uint8_t)device;
+    drive_client_set_device(g_dev_last);
 
     g_load_len = 0u;
     emit(PET_RETURN);
@@ -1001,6 +1005,7 @@ static void wedge_dir(const uint8_t *s, uint32_t i)
 /*
  * wedge -- DOS wedge: "@" status, "@$..." directory, "@<command>" to channel 15.
  * Steps:
+ *   0. The device is the last one LOAD used (8 after reset).
  *   1. "@" alone: read the status channel and print its line.
  *   2. "@$...": wedge_dir.
  *   3. Otherwise send the text as a DOS command (CD:NAME, CD:<left arrow>, CD//, I, UI)
@@ -1012,6 +1017,7 @@ static void wedge(const uint8_t *s, uint32_t i)
     drive_client_result_t r;
     uint32_t n = 0u;
 
+    drive_client_set_device(g_dev_last);
     i = skip_spaces(s, i);
     if (s[i] == '$') {
         wedge_dir(s, i);
