@@ -4,7 +4,7 @@
  *
  * File: main.c
  * Role: core 0 boot and main loop: platform bring-up in a fixed order with fail-stop checks,
- *   boot banner on the UART, then the superloop (keyboard, BASIC shell or the CLI placeholder).
+ *   boot banner on the UART, then the superloop (keyboard, BASIC shell or the engineering CLI (cli.c)).
  *
  * Interrupt wiring (axi_intc_0, fpga/bd/c64_bd.tcl; input = bit of the INTC intr vector):
  *   0 sid_audio_out low-level   -> audio_out_isr
@@ -27,6 +27,7 @@
 #include "c64_platform.h"
 #include "c64_regs.h"
 #include "c64screen.h"
+#include "cli.h"
 #include "ddr_probe.h"
 #include "drive_client.h"
 #include "keyboard.h"
@@ -189,35 +190,12 @@ static void mem_info(uint32_t *ram_bytes, uint32_t *free_bytes)
 }
 
 /*
- * cli_placeholder -- CLI mode until the MenuBuilder CLI exists.
- * Steps:
- *   1. On entry print one notice line; then discard the raw bytes (no echo).
- * Returns: nothing.
- */
-static void cli_placeholder(int *announced)
-{
-    uint8_t b;
-
-    if (!*announced) {
-        const char *p = CLI_NOTICE;
-
-        while (*p != '\0') {
-            outbyte(*p++);
-        }
-        *announced = 1;
-    }
-    while (keyboard_cli_getc(&b)) {
-    }
-}
-
-/*
  * main -- boot and superloop.
  * Returns: never.
  */
 int main(void)
 {
     basic_config_t cfg;
-    int cli_announced = 0;
 
     platform_init();
 
@@ -240,6 +218,7 @@ int main(void)
         xil_printf("DDR3 calibrated (%d ms), %d MiB\r\n", (int)g_ddr.calib_ms, (int)(g_ddr.size_bytes / MIB));
     }
 
+    cli_init(&g_ddr);
     adau1761_init();            /* fail-stop inside */
     xil_printf("ADAU1761 codec OK\r\n");
     audio_out_init();
@@ -271,15 +250,8 @@ int main(void)
         (void)drive_client_log_drain(log1_put, LOG1_DRAIN_MAX);   /* core 1 text: UART only */
 
         (void)events;   /* Ctrl-B is reported through keyboard_cli_mode() */
-        if (keyboard_cli_mode()) {
-            cli_placeholder(&cli_announced);
-            if (basic_playing()) {
-                g_player_ops.service();
-            }
-        } else {
-            cli_announced = 0;
-            basic_poll();
-        }
+        basic_poll();   /* screen, PS/2 keys and the player run in CLI mode too */
+        cli_poll(keyboard_cli_mode());
         oled_ui_poll(basic_playing(), video_vsync_count(), g_ms);
     }
 }

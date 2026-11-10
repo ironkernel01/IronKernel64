@@ -2,32 +2,48 @@
 # The CLI is reached over the UART with Ctrl-B (KEYBOARD_EVENT_CLI_TOGGLE); the C64 screen
 # keeps running while it is active. [ARG] is required, {ARG} optional (optional args last).
 # Descriptions contain no colons. Numbers accept decimal or 0x hex.
+# Generate with: python -I tools/gen_cli_menu.py   (verify with --check)
+#
+# Execution rule (fw_c64/src/cli.c): the CLI never blocks the main loop. Input is read from a
+# byte ring in bounded slices, output goes through a 2 KiB ring that is drained only while the
+# UART transmit FIFO has room, and a command starts only when the previous output has drained.
+# Commands marked (idle) wait on core 1 or on a slow bus and are refused while a tune plays,
+# so SID playback and the screen are never stalled by them. All other commands read registers
+# or firmware state and finish in microseconds.
 #
 # Core and platform
-cli_version:VERSION:Show firmware version, build date, bitstream ID and clock lock status
-cli_cpu_test:CPU TEST:Run the RV32IMC Zicsr Zba instruction self test and print pass or fail
-cli_bench:BENCH:Time SID emulation of one PAL frame and the frame render loop in cycles
+cli_version:VERSION:Show build ID, dirty flag and the clock lock and link status bits
 cli_ddr_info:DDR INFO:Show DDR3 calibration time, probed size, free bytes and pattern test result
 #
 # SID player
-cli_sid_dump:SID DUMP [TUNE] {SONG} {SECS}:Run a tune headless and print SID register writes per frame
-cli_sid_replay:SID REPLAY [FILE]:Replay a SID register write log from the drive through the emulator
-cli_sid_status:SID STATUS:Show the current tune, song, elapsed time and voice levels
+cli_sid_status:SID STATUS:Show the current tune, song, elapsed time, voice levels and player counters
 #
 # Audio path
 cli_audio_status:AUDIO STATUS:Show audio FIFO level, threshold, underrun count and status flags
-cli_audio_tone:AUDIO TONE {HZ}:Play a sine test tone on both channels (default 1000 Hz, 0 stops)
 cli_codec_read:CODEC READ [REG]:Read one ADAU1761 register over I2C (REG 0x4000 to 0x40FA)
-cli_codec_write:CODEC WRITE [REG] [VALUE]:Write one ADAU1761 register over I2C
-cli_codec_init:CODEC INIT:Run the ADAU1761 init sequence again with read-back check
+cli_codec_write:CODEC WRITE [REG] [VALUE]:Write one ADAU1761 register over I2C (idle)
 #
 # Drive (core 1)
-cli_drive_status:DRIVE STATUS:Ping core 1 and show the DOS status line and mailbox counters
-cli_drive_cmd:DRIVE CMD [TEXT]:Send a DOS command on channel 15 such as CD//, I or UI
-cli_drive_dir:DRIVE DIR {PATTERN}:List the current drive directory on the UART
-cli_drive_log:DRIVE LOG:Print and drain the core 1 log ring from shared BRAM
+cli_drive_status:DRIVE STATUS:Ping devices 8 and 9 and show the DOS status line (idle)
+cli_drive_cmd:DRIVE CMD [TEXT]:Send one DOS command word on channel 15 such as I or UI and show the status (idle)
 #
 # Video and input
 cli_video_status:VIDEO STATUS:Show frame counter, vsync count, front page and flip state
-cli_video_palette:VIDEO PALETTE [INDEX] [RGB]:Set one palette entry to 0xRRGGBB
-cli_keyboard_stats:KEYBOARD STATS:Show UART and PS2 byte counts, drops and parity or frame errors
+cli_video_palette:VIDEO PALETTE [INDEX] [RGB]:Set one palette entry (INDEX 0 to 15) to 0xRRGGBB
+cli_keyboard_stats:KEYBOARD STATS:Show dropped keys and bytes and the UART and PS2 error counts
+#
+# Moved out of this release (not in the table above; reasons, 11-10-2026):
+#   CPU TEST     links the 14,018 byte Dormann images (cpu_selftest_images.o) into the
+#                LMB image (text +17 %), clobbers the 6502 RAM the player uses, and the run is one blocking
+#                call of seconds. Needs a stepwise cpu_selftest API and a DDR3 image first.
+#   BENCH        needs a cycle-count harness around the 6502/synth/video loops; the synth is
+#                in fabric now, so only 6502 and render time remain. Later with CPU TEST.
+#   SID DUMP / SID REPLAY  need a headless run and the drive transfer in bounded steps with a
+#                DDR3 log buffer; deferred with the register-log player.
+#   AUDIO TONE   needs a second sample source next to the fabric SID stream (SRC switch) and
+#                would cut a playing tune; deferred.
+#   CODEC INIT   adau1761_init() fail-stops on error; a returning variant needs a driver change.
+#   DRIVE DIR / DRIVE LOG  DIR: the C64 screen LOAD"$",8 already lists the directory; LOG: the
+#                main loop already drains the core 1 log ring to the UART as "[1541] ..." lines.
+#
+# REVISION: 11-10-2026 | Initial generation: 12 commands (VERSION, DDR INFO, SID STATUS, AUDIO STATUS, CODEC READ/WRITE, DRIVE STATUS/CMD, VIDEO STATUS/PALETTE, KEYBOARD STATS)

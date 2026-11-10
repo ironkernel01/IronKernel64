@@ -1,0 +1,12 @@
+/* menu_commands.def -- X-macro list of the callbacks (generated from cli_commands.txt, 2026-11-10). */
+MENU_CMD(cli_version)
+MENU_CMD(cli_ddr_info)
+MENU_CMD(cli_sid_status)
+MENU_CMD(cli_audio_status)
+MENU_CMD(cli_codec_read)
+MENU_CMD(cli_codec_write)
+MENU_CMD(cli_drive_status)
+MENU_CMD(cli_drive_cmd)
+MENU_CMD(cli_video_status)
+MENU_CMD(cli_video_palette)
+MENU_CMD(cli_keyboard_stats)
