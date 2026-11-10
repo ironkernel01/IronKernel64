@@ -32,7 +32,7 @@
 //   * Register windows:
 //       core 0 M_AXI_C64 (0x4400_0000, 512 KiB) -> u_dec0: SYS (c64_sysregs
 //         core 0), AUD (sid_audio_out), VID (c64_video), PS2 (ps2_rx), SID
-//         (sid_player on sid_clk behind u_sid_cdc), 64 KiB each at c64_pkg
+//         (sid_player on sid_clk behind u_sid_cdc), OLED (c64_oled), 64 KiB each at c64_pkg
 //         WIN_*_OFS; the sample stream u_sid.strm_* crosses to cpu_clk in
 //         u_sid_strm and feeds u_audio (CTRL.SRC = 1).
 //       core 1 M_AXI_DRV (0x44A0_0000, 1 MiB) -> u_dec1, RTLNet layout:
@@ -64,6 +64,8 @@
 //   * 11-09-2026: Phase 4 network path: u_mac, u_mdio (+ IOBUF), u_protocol on core 1's window;
 //     clk125, clk125_90 and axis_clk BUFGs with their reset synchronizers; RGMII, MDIO and
 //     eth_int_b ports; the MAC, MDIO and PROTOCOL stubs are gone.
+//   * 11-09-2026: OLED display driver c64_oled (u_oled, window 0 slot 5, 0x4405_0000) and the six
+//     oled_* pins.
 // Clocks: sysclk (100 MHz pin) -> u_mmcm_sys; cpu_clk, clk200, ddr_sys_clk,
 //   pix_clk, pix_clk_x5, aud_clk, ui_clk as above.
 // Pins: names, balls, banks and I/O standards from the Digilent
@@ -130,6 +132,20 @@ module c64_top
   input  logic       ps2_clk,
   input  logic       ps2_data,
 
+  // OLED display (UG-2832HSWEG04, SSD1306, 4-wire SPI, write only), bank 14
+  // (3.3 V), LVCMOS33, balls as in the Digilent master XDC, registered
+  // outputs driven by c64_oled:
+  // oled_dc W22 (high data, low command), oled_res U21 (active low reset),
+  // oled_sclk W21 (6.25 MHz, idle low), oled_sdin Y22, oled_vbat P20 and
+  // oled_vdd V22 (gates of P-channel switches, active low: low = on, high =
+  // off; reset state high).
+  output logic       oled_dc,
+  output logic       oled_res,
+  output logic       oled_sclk,
+  output logic       oled_sdin,
+  output logic       oled_vbat,
+  output logic       oled_vdd,
+
   // RTL8211E RGMII receive (PHY -> FPGA), bank 13 (2.5 V), LVCMOS25:
   // eth_rxck V13 (MRCC, receive clock 125/25/2.5 MHz), eth_rxctl W10,
   // eth_rxd[0] AB16, [1] AA15, [2] AB15, [3] AB11 (balls as RTLNet's
@@ -185,13 +201,15 @@ module c64_top
   localparam logic [31:0] WIN0_BASE   = 32'h4400_0000;
   localparam logic [31:0] WIN1_BASE   = 32'h44A0_0000;
   // Window 0 slots.
-  localparam int          NUM_SLV0    = 5;
+  localparam int          NUM_SLV0    = 6;
   localparam int          S0_SYS      = 0;
   localparam int          S0_AUD      = 1;
   localparam int          S0_VID      = 2;
   localparam int          S0_PS2      = 3;
   localparam int          S0_SID      = 4;
+  localparam int          S0_OLED     = 5;
   localparam logic [NUM_SLV0*AW-1:0] SLAVE0_BASE = {
+    WIN0_BASE + WIN_OLED_OFS,        // 5 OLED
     WIN0_BASE + WIN_SID_OFS,         // 4 SID
     WIN0_BASE + WIN_PS2_OFS,         // 3 PS2
     WIN0_BASE + WIN_VID_OFS,         // 2 VID
@@ -895,7 +913,7 @@ module c64_top
   IOBUF u_sda_iobuf (.I(iic_sda_o), .T(iic_sda_t), .O(iic_sda_i), .IO(sda));
 
   // ---------------------------------------------------------------------------
-  // Register window 0 (core 0): SYS, AUD, VID, PS2, SID.
+  // Register window 0 (core 0): SYS, AUD, VID, PS2, SID, OLED.
   // ---------------------------------------------------------------------------
   rtlnet_axil_decoder #(
     .N          (NUM_SLV0),
@@ -1149,6 +1167,37 @@ module c64_top
     .ps2_clk       (ps2_clk),
     .ps2_data      (ps2_data),
     .irq           (ps2_irq)
+  );
+
+  // OLED display driver (window OLED, 4 KiB used of the 64 KiB slot).
+  c64_oled #(
+    .CPU_CLK_HZ (CPU_CLK_HZ)
+  ) u_oled (
+    .cpu_clk       (cpu_clk),
+    .cpu_resetn    (cpu_resetn_sync),
+    .s_axi_awaddr  (d0_awaddr[S0_OLED*AW +: OLED_ADDR_W]),
+    .s_axi_awvalid (d0_awvalid[S0_OLED]),
+    .s_axi_awready (d0_awready[S0_OLED]),
+    .s_axi_wdata   (d0_wdata[S0_OLED*32 +: 32]),
+    .s_axi_wstrb   (d0_wstrb[S0_OLED*4 +: 4]),
+    .s_axi_wvalid  (d0_wvalid[S0_OLED]),
+    .s_axi_wready  (d0_wready[S0_OLED]),
+    .s_axi_bresp   (d0_bresp[S0_OLED*2 +: 2]),
+    .s_axi_bvalid  (d0_bvalid[S0_OLED]),
+    .s_axi_bready  (d0_bready[S0_OLED]),
+    .s_axi_araddr  (d0_araddr[S0_OLED*AW +: OLED_ADDR_W]),
+    .s_axi_arvalid (d0_arvalid[S0_OLED]),
+    .s_axi_arready (d0_arready[S0_OLED]),
+    .s_axi_rdata   (d0_rdata[S0_OLED*32 +: 32]),
+    .s_axi_rresp   (d0_rresp[S0_OLED*2 +: 2]),
+    .s_axi_rvalid  (d0_rvalid[S0_OLED]),
+    .s_axi_rready  (d0_rready[S0_OLED]),
+    .oled_dc       (oled_dc),
+    .oled_res      (oled_res),
+    .oled_sclk     (oled_sclk),
+    .oled_sdin     (oled_sdin),
+    .oled_vbat     (oled_vbat),
+    .oled_vdd      (oled_vdd)
   );
 
   // ---------------------------------------------------------------------------

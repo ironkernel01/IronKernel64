@@ -22,6 +22,7 @@
 //     audio geometry).
 //   * 11-09-2026: SID player map, CPU_CLK_HZ / SID_CLK_HZ, AUD_CTRL_SRC_BIT,
 //     WIN_SID_OFS and the 512 KiB window 0.
+//   * 11-09-2026: OLED map (c64_oled), WIN_OLED_OFS.
 // Clocks: none (package).
 // -----------------------------------------------------------------------------
 package c64_pkg;
@@ -41,6 +42,7 @@ package c64_pkg;
   localparam logic [31:0] WIN_VID_OFS  = 32'h0002_0000; // c64_video registers
   localparam logic [31:0] WIN_PS2_OFS  = 32'h0003_0000; // ps2_rx
   localparam logic [31:0] WIN_SID_OFS  = 32'h0004_0000; // sid_player (64 KiB slot, sid_player.sv)
+  localparam logic [31:0] WIN_OLED_OFS = 32'h0005_0000; // c64_oled (4 KiB used of its 64 KiB slot)
   localparam logic [31:0] WIN_BLOCK_SIZE = 32'h0001_0000;
   localparam logic [31:0] WIN_SIZE     = 32'h0008_0000; // whole window, 512 KiB
 
@@ -184,5 +186,39 @@ package c64_pkg;
   localparam int PS2_CTRL_IRQ_EN_BIT     = 0;          // interrupt while FIFO not empty
 
   localparam int PS2_FIFO_DEPTH = 16;
+
+  // ---------------------------------------------------------------------------
+  // OLED (c64_oled): 128x32 SSD1306 panel on the board, 4-wire SPI, write only.
+  // ---------------------------------------------------------------------------
+  localparam logic [15:0] OLED_ID_OFS       = 16'h0000; // RO OLED_ID_VALUE
+  localparam logic [15:0] OLED_VERSION_OFS  = 16'h0004; // RO OLED_VERSION_VALUE
+  localparam logic [15:0] OLED_CTRL_OFS     = 16'h0008; // RW control bits below
+  localparam logic [15:0] OLED_STATUS_OFS   = 16'h000C; // RO [1:0] state, [31:16] frame count
+  localparam logic [15:0] OLED_CONTRAST_OFS = 16'h0010; // RW [7:0], sent at the next frame start when changed
+  localparam logic [15:0] OLED_SCROLL0_OFS  = 16'h0020; // RW [8:0] column offset of page 0 (SCROLL1..3 follow at +4)
+  localparam logic [15:0] OLED_SCROLL1_OFS  = 16'h0024; // RW [8:0] column offset of page 1
+  localparam logic [15:0] OLED_SCROLL2_OFS  = 16'h0028; // RW [8:0] column offset of page 2
+  localparam logic [15:0] OLED_SCROLL3_OFS  = 16'h002C; // RW [8:0] column offset of page 3
+  localparam logic [15:0] OLED_FB_OFS       = 16'h0800; // RW 512 words: word = page*128 + (vcol >> 2), byte lane = vcol & 3
+
+  localparam logic [31:0] OLED_ID_VALUE      = 32'h4F4C_4544; // ASCII "OLED"
+  localparam logic [31:0] OLED_VERSION_VALUE = 32'h0001_0000;
+
+  localparam int OLED_CTRL_POWER_BIT  = 0;             // 0->1 power-up sequence then refresh; 1->0 power-down sequence
+  localparam int OLED_CTRL_INVERT_BIT = 1;             // 1: inverse video (0xA7), applied at the next frame start
+  localparam int OLED_STATUS_STATE_LSB = 0;            // [1:0] OLED_STATE_*
+  localparam int OLED_STATUS_FRAME_LSB = 16;           // [31:16] frames started while RUNNING
+
+  localparam int OLED_STATE_OFF           = 0;
+  localparam int OLED_STATE_POWERING_UP   = 1;
+  localparam int OLED_STATE_RUNNING       = 2;
+  localparam int OLED_STATE_POWERING_DOWN = 3;
+
+  localparam int OLED_CONTRAST_RESET = 127;            // 8'h7F
+  localparam int OLED_COLS           = 128;            // display columns
+  localparam int OLED_PAGES          = 4;              // 8-pixel rows
+  localparam int OLED_VCOLS          = 512;            // virtual columns per page (scroll range)
+  localparam int OLED_FB_WORDS       = 512;            // 32-bit words, 2 KiB
+  localparam int OLED_ADDR_W         = 12;             // byte address bits decoded (4 KiB)
 
 endpackage

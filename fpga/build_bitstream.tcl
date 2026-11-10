@@ -80,6 +80,7 @@
 #   * 11-09-2026: Phase 4 network (u_mac, u_mdio, u_protocol): RGMII XDC after synthesis; CDC expectation fifo 12,
 #     axil_cdc 6, gray 8 (each count named in the header); TIMING-47 waiver for the RGMII same-edge false paths
 #     (RTLNet's own waiver); no existing gate loosened.
+#   * 11-09-2026: SYNTH-5 waiver for the c64_oled framebuffer (distributed RAM by design); no gate loosened.
 #   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
 #     u_sid_strm/u_fifo joins the async-reset exceptions.
 # -----------------------------------------------------------------------------
@@ -439,6 +440,8 @@ set meth_waivers {
   {SYNTH-6 {^The timing for the instance (u_sid/mem_reg|u_sid/u_sid/filter/w0_T_lsl17_6581_reg|u_sid/u_sid/waveform/p_t_6581_reg|u_sid/u_sid/waveform/ps__6581_reg), implemented as a RAM block, might be sub-optimal as no output register was merged into the block\.}
            {sid_clk domain (50 MHz), post-route WNS of the domain above 6 ns: the reDIP-SID table ROMs (upstream, unmodified, read with zero added latency by design) and the sid_player write FIFO RAM, whose output register would add a read cycle with no timing need}
            {u_sid/mem_reg u_sid/u_sid/filter/w0_T_lsl17_6581_reg u_sid/u_sid/waveform/p_t_6581_reg u_sid/u_sid/waveform/ps__6581_reg}}
+  {SYNTH-5 {^The instance u_oled/g_fb\[[0-3]\]\.mem_reg_[0-9_]+ is implemented as distributed LUT RAM }
+           {c64_oled framebuffer: 2 KiB requested as ram_style distributed on purpose (block RAM is at 79 % against the 80 % gate); the message only states that Vivado kept the requested mapping}}
   {XDCB-5 {^The option '-to : \[get_pins -hier -include_replicated_objects -filter \{NAME =~ \*temp_mon_enabled\.u_tempmon/device_temp_sync_r1_reg\[\*\]/D\}\]' of constraint 'set_max_delay' }
           {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: the vendor-generated temperature monitor constraint (set_max_delay to temp_mon_enabled.u_tempmon/device_temp_sync_r1_reg[*]/D) uses a hierarchical pin query; it is vendor IP constraint text}
           {match}}

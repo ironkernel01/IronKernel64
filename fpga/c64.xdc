@@ -97,6 +97,18 @@ set_property -dict { PACKAGE_PIN W17   IOSTANDARD LVCMOS33 PULLUP true } [get_po
 set_property -dict { PACKAGE_PIN N13   IOSTANDARD LVCMOS33 PULLUP true } [get_ports { ps2_data }]
 
 # ---------------------------------------------------------------------------
+# OLED display (UG-2832HSWEG04 / SSD1306, c64_oled), bank 14 (3.3 V), outputs only.
+# oled_vbat / oled_vdd drive the gates of the board's P-channel power switches
+# (10 K pull-up to 3.3 V, active low): high = off, also before configuration.
+# ---------------------------------------------------------------------------
+set_property -dict { PACKAGE_PIN W22   IOSTANDARD LVCMOS33 } [get_ports { oled_dc }]
+set_property -dict { PACKAGE_PIN U21   IOSTANDARD LVCMOS33 } [get_ports { oled_res }]
+set_property -dict { PACKAGE_PIN W21   IOSTANDARD LVCMOS33 } [get_ports { oled_sclk }]
+set_property -dict { PACKAGE_PIN Y22   IOSTANDARD LVCMOS33 } [get_ports { oled_sdin }]
+set_property -dict { PACKAGE_PIN P20   IOSTANDARD LVCMOS33 } [get_ports { oled_vbat }]
+set_property -dict { PACKAGE_PIN V22   IOSTANDARD LVCMOS33 } [get_ports { oled_vdd }]
+
+# ---------------------------------------------------------------------------
 # RTL8211E Ethernet PHY. RGMII and management on bank 13 (2.5 V); the PHY reset
 # on bank 34 (3.3 V), driven by the MDIO core, low until the firmware releases it.
 # Pins as RTLNet rtlnet_nexys_video.xdc (VERIFY against the board schematic).
@@ -189,10 +201,10 @@ set_property -dict { PACKAGE_PIN P4  IOSTANDARD DIFF_SSTL15 SLEW FAST } [get_por
 # PHY side band synchronized in rtlnet_mdio, eth_mdio is the bit-banged
 # management data line (rtlnet_mdio).
 # Outputs: register driven and slow (LEDs, UART transmit, PHY reset, MDC/MDIO,
-# I2C), or the audio pins (see the header).
+# I2C, the OLED SPI/power pins at 6.25 MHz), or the audio pins (see the header).
 # ---------------------------------------------------------------------------
 set_false_path -from [get_ports {cpu_resetn uart_tx_in ps2_clk ps2_data hdmi_tx_hpd scl sda eth_int_b eth_mdio}]
-set_false_path -to   [get_ports {led[*] uart_rx_out eth_rst_b eth_mdc eth_mdio scl sda ac_mclk ac_bclk ac_lrclk ac_dac_sdata}]
+set_false_path -to   [get_ports {led[*] uart_rx_out eth_rst_b eth_mdc eth_mdio scl sda ac_mclk ac_bclk ac_lrclk ac_dac_sdata oled_dc oled_res oled_sclk oled_sdin oled_vbat oled_vdd}]
 # DDR3 RESET# is a static control level set by the controller's calibration sequence, not a clocked signal.
 set_false_path -to   [get_ports {ddr3_reset_n}]
 

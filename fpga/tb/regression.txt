@@ -9,3 +9,5 @@ tb_sid_audio_out   fpga/tb/tb_sid_audio_out.f
 tb_sid_audio_out   fpga/tb/tb_sid_audio_out.f  neg  plusargs=INJECT_FAILURE  expectfail
 tb_sid_player      fpga/tb/tb_sid_player.f
 tb_sid_player      fpga/tb/tb_sid_player.f     neg  plusargs=INJECT_FAILURE  expectfail
+tb_c64_oled        fpga/tb/tb_c64_oled.f
+tb_c64_oled        fpga/tb/tb_c64_oled.f       neg  plusargs=INJECT_FAILURE  expectfail

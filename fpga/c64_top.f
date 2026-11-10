@@ -31,6 +31,7 @@ fpga/hdl/dvi_tx.sv
 fpga/hdl/c64_video.sv
 fpga/hdl/sid_audio_out.sv
 fpga/hdl/ps2_rx.sv
+fpga/hdl/c64_oled.sv
 fpga/hdl/c64_sysregs.sv
 fpga/hdl/sid_player.sv
 fpga/hdl/sid_strm_cdc.sv
