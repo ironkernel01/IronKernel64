@@ -84,6 +84,14 @@ void     c64screen_cursor_enable(int on);
 
 uint32_t c64screen_render(void);
 
+/* Overlay: text rows [first_row, first_row + rows) are left to fn, which draws pixels on the
+ * back page it is given and returns how many things it changed (the page flips when that is
+ * non-zero, like a text change). The text layer never draws those rows while the overlay is
+ * set; fn(page) must paint the whole area on a page's first call. c64screen_set_overlay(0, 0,
+ * NULL) removes it and marks the rows for redraw. */
+typedef uint32_t (*c64screen_overlay_fn)(uint32_t page);
+void     c64screen_set_overlay(uint32_t first_row, uint32_t rows, c64screen_overlay_fn fn);
+
 void     c64screen_save(c64screen_snapshot_t *snap);
 void     c64screen_restore(const c64screen_snapshot_t *snap);
 

@@ -53,6 +53,9 @@ static uint32_t   g_cur_col;
 static int        g_cur_on;
 static uint32_t   g_blink_base;               /* vsync count when the blink phase restarted */
 static scr_page_t g_drawn[SCR_PAGES];
+static c64screen_overlay_fn g_overlay;        /* pixel overlay over text rows, or NULL */
+static uint32_t   g_ovl_first;
+static uint32_t   g_ovl_rows;
 
 /*
  * invalidate_pages -- forget what both pages show, so the next renders redraw everything.
@@ -297,15 +300,40 @@ static void draw_border(uint32_t page, uint8_t colour)
 }
 
 /*
+ * c64screen_set_overlay -- hand text rows to a pixel overlay, or take them back.
+ * Steps: set the rows and callback; with fn NULL, invalidate the records of the old rows so
+ *   the next renders redraw their text over whatever the overlay left.
+ * Returns: nothing.
+ */
+void c64screen_set_overlay(uint32_t first_row, uint32_t rows, c64screen_overlay_fn fn)
+{
+    if (fn == NULL) {
+        for (uint32_t p = 0u; p < SCR_PAGES; p++) {
+            for (uint32_t i = g_ovl_first * C64SCREEN_COLS;
+                 i < (g_ovl_first + g_ovl_rows) * C64SCREEN_COLS && i < C64SCREEN_CELLS; i++) {
+                g_drawn[p].glyph[i] = SCR_GLYPH_INVALID;
+            }
+        }
+        g_ovl_first = 0u;
+        g_ovl_rows = 0u;
+    } else {
+        g_ovl_first = first_row;
+        g_ovl_rows = rows;
+    }
+    g_overlay = fn;
+}
+
+/*
  * c64screen_render -- bring the back page up to date and show it.
  * Steps:
  *   1. Return 0 while a flip is pending (both pages busy).
  *   2. Work out the cursor phase: on for C64SCREEN_BLINK_FRAMES vsyncs, off for as many.
  *   3. Redraw the border if its colour differs from the page record; a background change
  *      invalidates every cell record of the page.
- *   4. For each cell, compute the wanted glyph (cursor cell: screen code with bit 7
+ *   4. For each cell outside the overlay rows, compute the wanted glyph (cursor cell: screen code with bit 7
  *      flipped) and colour; draw the cells whose record differs.
- *   5. Flip when anything was drawn.
+ *   5. Call the overlay for the back page (it paints the rows the text layer skipped).
+ *   6. Flip when anything was drawn.
  * Returns: number of cells drawn (0 when nothing changed or a flip is pending).
  */
 uint32_t c64screen_render(void)
@@ -315,6 +343,7 @@ uint32_t c64screen_render(void)
     uint32_t drawn = 0u;
     int cursor_shown;
     int border_drawn = 0;
+    uint32_t ovl = 0u;
 
     if (video_flip_pending()) {
         return 0u;
@@ -337,6 +366,10 @@ uint32_t c64screen_render(void)
         uint8_t code = g_code[i];
         uint16_t glyph;
 
+        if (g_overlay != NULL && i / C64SCREEN_COLS >= g_ovl_first &&
+            i / C64SCREEN_COLS < g_ovl_first + g_ovl_rows) {
+            continue;
+        }
         if (cursor_shown && i == g_cur_row * C64SCREEN_COLS + g_cur_col) {
             code ^= C64SCREEN_REVERSE_BIT;
         }
@@ -352,7 +385,10 @@ uint32_t c64screen_render(void)
             drawn++;
         }
     }
-    if (drawn != 0u || border_drawn) {
+    if (g_overlay != NULL) {
+        ovl = g_overlay(page);
+    }
+    if (drawn != 0u || border_drawn || ovl != 0u) {
         video_flip();
     }
     return drawn;

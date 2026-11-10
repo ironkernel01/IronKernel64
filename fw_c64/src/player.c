@@ -12,6 +12,8 @@
 
 #include "audio_out.h"
 #include "c64_regs.h"
+#include "c64screen.h"
+#include "np_piano.h"
 #include "psid.h"
 #include "sid_envmodel.h"
 #include "sidbus.h"
@@ -71,6 +73,7 @@ static basic_player_reason_t map_load(psid_status_t st)
 static void player_sid_tap(uint32_t stamp, uint8_t reg, uint8_t val)
 {
     sid_envmodel_write(&g_env, stamp, reg, val);
+    np_piano_event(stamp, reg, val);
 }
 
 /*
@@ -87,6 +90,7 @@ static psid_status_t begin_song(uint32_t song)
 
     g_playing = 0;
     sid_envmodel_reset(&g_env, 0u);
+    np_piano_reset(0u);
     st = psid_init((uint16_t)song);
     if (st != PSID_OK) {
         return st;
@@ -115,11 +119,13 @@ static basic_player_reason_t player_start(const uint8_t *file, uint32_t len)
     uint32_t polls = 0u;
 
     if (!g_tap_set) {
+        np_piano_init(C64_SID_PHI2_HZ, C64SCREEN_BOOT_BACKGROUND);
         sidbus_fabric_set_tap(player_sid_tap);
         g_tap_set = 1;
     }
     sidbus_reset(SIDBUS_MODEL_6581);
     sid_envmodel_reset(&g_env, 0u);
+    np_piano_reset(0u);
     audio_out_enable(0);
     audio_out_flush();
     audio_out_set_source(1);
@@ -200,10 +206,12 @@ static void player_service(void)
             g_playing = 0;
             sidbus_reset(SIDBUS_MODEL_6581);
             sid_envmodel_reset(&g_env, 0u);
+            np_piano_reset(0u);
             return;
         }
         g_base += psid_play_period_cycles();
     }
+    np_piano_sync(sidbus_fabric_cycle());
 }
 
 /*
@@ -253,6 +261,7 @@ static void player_stop(void)
     g_playing = 0;
     sidbus_reset(SIDBUS_MODEL_6581);
     sid_envmodel_reset(&g_env, 0u);
+    np_piano_reset(0u);
     audio_out_enable(0);
     audio_out_flush();
     audio_out_set_source(0);

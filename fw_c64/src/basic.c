@@ -25,6 +25,7 @@
 #include "c64screen.h"
 #include "drive_client.h"
 #include "keyboard.h"
+#include "np_piano.h"
 #include "video.h"
 
 #include "sleep.h"   /* usleep (show_now pacing) */
@@ -88,7 +89,7 @@
 #define NP_ROW_SONG           (7u)
 #define NP_ROW_TIME           (8u)
 #define NP_ROW_VOICE1         (10u)
-#define NP_ROW_HELP           (14u)
+#define NP_ROW_HELP           (24u)
 
 typedef enum
 {
@@ -137,6 +138,11 @@ static const uint8_t g_colour_codes[16] = {
 /* Voice bar colours on the now-playing screen. */
 static const uint8_t g_bar_colour[BASIC_VOICES] = {
     VIDEO_COL_LIGHT_GREEN, VIDEO_COL_YELLOW, VIDEO_COL_LIGHT_RED
+};
+
+/* Piano release-fade colours: green, orange, red (dim partners of g_bar_colour). */
+static const uint8_t g_piano_dim[BASIC_VOICES] = {
+    VIDEO_COL_GREEN, VIDEO_COL_ORANGE, VIDEO_COL_RED
 };
 
 static basic_config_t g_cfg;
@@ -1190,6 +1196,8 @@ static void np_open(void)
     np_mirror_text("AUTHOR ", g_tune.author);
     np_mirror_text("RELEASED ", g_tune.released);
     np_mirror_song();
+    np_piano_set_colours(g_bar_colour, g_piano_dim);
+    c64screen_set_overlay(NP_PIANO_ROW_FIRST, NP_PIANO_ROWS, np_piano_overlay);
     np_update();
 }
 
@@ -1205,6 +1213,7 @@ static void np_close(void)
         uart_str("\r\n");
         g_np_secs = BASIC_SECS_NONE;
     }
+    c64screen_set_overlay(0u, 0u, NULL);
     c64screen_restore(&g_saved_screen);
     g_row = g_saved_row;
     g_col = g_saved_col;
