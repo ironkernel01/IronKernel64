@@ -24,14 +24,17 @@
 #     (MCLK) on aud_clk; their relative timing is fixed by the IOB placement,
 #     and the codec samples at 3.072 MHz BCLK (325 ns period), so they are
 #     false paths rather than output-delay constrained.
-#   * Ethernet: Phase 1 drives only eth_rst_b (PHY held in reset). The RGMII,
-#     MDIO and side-band pins are added with the Phase 4 network path, from
-#     RTLNet rtlnet_nexys_video.xdc and rtlnet_nexys_video_rgmii.xdc.
+#   * Ethernet: RGMII, MDIO and side-band pins copied from RTLNet
+#     rtlnet_nexys_video.xdc; the RGMII timing, IDELAY group and TXC generated
+#     clock are in third_party/rtlnet/boards/nexys_video/constraints/
+#     rtlnet_nexys_video_rgmii.xdc, which fpga/build_bitstream.tcl reads after
+#     synthesis (it names the u_mac/u_rgmii_io cells).
 #   * microSD (deferred, not in milestone 1): sd_cclk W19, sd_cmd W20,
 #     sd_d[0] V19, sd_d[3] U18, sd_cd T18, sd_reset V20 (bank 14, LVCMOS33).
 #     Not constrained until the SD backend exists.
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version.
+#   * 11-09-2026: Phase 4: RGMII, MDIO and eth_int_b pins (RTLNet), their false paths.
 # -----------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -94,8 +97,25 @@ set_property -dict { PACKAGE_PIN W17   IOSTANDARD LVCMOS33 PULLUP true } [get_po
 set_property -dict { PACKAGE_PIN N13   IOSTANDARD LVCMOS33 PULLUP true } [get_ports { ps2_data }]
 
 # ---------------------------------------------------------------------------
-# RTL8211E PHY reset, bank 34 (3.3 V), held low in Phase 1.
+# RTL8211E Ethernet PHY. RGMII and management on bank 13 (2.5 V); the PHY reset
+# on bank 34 (3.3 V), driven by the MDIO core, low until the firmware releases it.
+# Pins as RTLNet rtlnet_nexys_video.xdc (VERIFY against the board schematic).
 # ---------------------------------------------------------------------------
+set_property -dict { PACKAGE_PIN V13   IOSTANDARD LVCMOS25 } [get_ports { eth_rxck }]
+set_property -dict { PACKAGE_PIN W10   IOSTANDARD LVCMOS25 } [get_ports { eth_rxctl }]
+set_property -dict { PACKAGE_PIN AB16  IOSTANDARD LVCMOS25 } [get_ports { eth_rxd[0] }]
+set_property -dict { PACKAGE_PIN AA15  IOSTANDARD LVCMOS25 } [get_ports { eth_rxd[1] }]
+set_property -dict { PACKAGE_PIN AB15  IOSTANDARD LVCMOS25 } [get_ports { eth_rxd[2] }]
+set_property -dict { PACKAGE_PIN AB11  IOSTANDARD LVCMOS25 } [get_ports { eth_rxd[3] }]
+set_property -dict { PACKAGE_PIN AA14  IOSTANDARD LVCMOS25 } [get_ports { eth_txck }]
+set_property -dict { PACKAGE_PIN V10   IOSTANDARD LVCMOS25 } [get_ports { eth_txctl }]
+set_property -dict { PACKAGE_PIN Y12   IOSTANDARD LVCMOS25 } [get_ports { eth_txd[0] }]
+set_property -dict { PACKAGE_PIN W12   IOSTANDARD LVCMOS25 } [get_ports { eth_txd[1] }]
+set_property -dict { PACKAGE_PIN W11   IOSTANDARD LVCMOS25 } [get_ports { eth_txd[2] }]
+set_property -dict { PACKAGE_PIN Y11   IOSTANDARD LVCMOS25 } [get_ports { eth_txd[3] }]
+set_property -dict { PACKAGE_PIN AA16  IOSTANDARD LVCMOS25 } [get_ports { eth_mdc }]
+set_property -dict { PACKAGE_PIN Y16   IOSTANDARD LVCMOS25 } [get_ports { eth_mdio }]
+set_property -dict { PACKAGE_PIN Y14   IOSTANDARD LVCMOS25 } [get_ports { eth_int_b }]
 set_property -dict { PACKAGE_PIN U7    IOSTANDARD LVCMOS33 } [get_ports { eth_rst_b }]
 
 # ---------------------------------------------------------------------------
@@ -165,12 +185,14 @@ set_property -dict { PACKAGE_PIN P4  IOSTANDARD DIFF_SSTL15 SLEW FAST } [get_por
 # Inputs: cpu_resetn only asserts rtlnet_reset_sync chains; uart_tx_in enters
 # the UART Lite receiver's oversampler; ps2_clk/ps2_data enter ps2_rx's
 # rtlnet_sync chains; hdmi_tx_hpd enters u_sync_status; scl/sda are the I2C
-# bus at 100 kHz, sampled by axi_iic_0's own synchronizers.
-# Outputs: register driven and slow (LEDs, UART transmit, PHY reset, I2C), or
-# the audio pins (see the header).
+# bus at 100 kHz, sampled by axi_iic_0's own synchronizers; eth_int_b is a slow
+# PHY side band synchronized in rtlnet_mdio, eth_mdio is the bit-banged
+# management data line (rtlnet_mdio).
+# Outputs: register driven and slow (LEDs, UART transmit, PHY reset, MDC/MDIO,
+# I2C), or the audio pins (see the header).
 # ---------------------------------------------------------------------------
-set_false_path -from [get_ports {cpu_resetn uart_tx_in ps2_clk ps2_data hdmi_tx_hpd scl sda}]
-set_false_path -to   [get_ports {led[*] uart_rx_out eth_rst_b scl sda ac_mclk ac_bclk ac_lrclk ac_dac_sdata}]
+set_false_path -from [get_ports {cpu_resetn uart_tx_in ps2_clk ps2_data hdmi_tx_hpd scl sda eth_int_b eth_mdio}]
+set_false_path -to   [get_ports {led[*] uart_rx_out eth_rst_b eth_mdc eth_mdio scl sda ac_mclk ac_bclk ac_lrclk ac_dac_sdata}]
 # DDR3 RESET# is a static control level set by the controller's calibration sequence, not a clocked signal.
 set_false_path -to   [get_ports {ddr3_reset_n}]
 

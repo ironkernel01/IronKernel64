@@ -17,8 +17,9 @@
 //         CLKOUT2 clk200 (MIG IDELAY reference), CLKOUT4 sid_clk 50 MHz
 //         (sid_player; also usable later by the network cores), CLKOUT5
 //         cpu_clk 100 MHz, CLKOUT6 ddr_sys_clk 100 MHz (MIG PLL input).
-//         CLKOUT0/1/3 (clk125, clk125_90, axis_clk) are the Phase 4 network
-//         clocks; they have no BUFG until the network cores are added.
+//         CLKOUT0 clk125 (MAC transmit), CLKOUT1 clk125_90 (RGMII TXC forward),
+//         CLKOUT3 axis_clk 62.5 MHz (MAC client side, protocol filter); sid_clk
+//         doubles as the protocol's proto_clk and app_clk (RTLNet's proto_clk).
 //       u_mmcm_pix: cpu_clk in, DIVCLK 5, MULT 37.125, VCO 742.5 MHz;
 //         CLKOUT0 /10 = pix_clk 74.25 MHz (CEA-861 720p60, exact),
 //         CLKOUT1 /2 = pix_clk_x5 371.25 MHz (TMDS 10:1 DDR serial clock).
@@ -35,13 +36,20 @@
 //         WIN_*_OFS; the sample stream u_sid.strm_* crosses to cpu_clk in
 //         u_sid_strm and feeds u_audio (CTRL.SRC = 1).
 //       core 1 M_AXI_DRV (0x44A0_0000, 1 MiB) -> u_dec1, RTLNet layout:
-//         SYS (c64_sysregs core 1), ARB (rtlnet_axi_arbiter registers), and
-//         stubs (OKAY, read 0) for MAC, MDIO and PROTOCOL until Phase 4.
+//         SYS (c64_sysregs core 1), MAC (rtlnet_eth_mac), MDIO (rtlnet_mdio), ARB
+//         (rtlnet_axi_arbiter registers) and PROTOCOL (rtlnet_eth_protocol with
+//         its classifier and checksum offload). RTLNet's ECHO slot (0x3000) is
+//         absent: the UDP echo core is not instantiated, the slot gives DECERR.
 //       Addresses outside every slot get DECERR from the decoder.
 //   * Interrupts: core 0 irq0[0] audio, [1] vsync, [2] PS/2, [7:3] 0;
-//     core 1 irq1[7:0] 0 (Phase 4 adds the network cores).
-//   * Ethernet: Phase 1 holds the RTL8211E in reset (eth_rst_b low) and the
-//     core 1 DMA streams idle (S_AXIS_ETH never valid, M_AXIS_ETH always ready).
+//     core 1 irq1[0] MDIO (PHY interrupt), [7:1] 0.
+//   * Ethernet (as RTLNet's network build): u_mac (RGMII pin layer inside it),
+//     u_mdio with the eth_mdio IOBUF, u_protocol; the protocol's CPU stream
+//     (cpu_clk) joins the block design's S_AXIS_ETH / M_AXIS_ETH. The protocol
+//     application ports (UDP sockets) have no application: transmit idle
+//     (tvalid 0), receive always ready. eth_rst_b is the MDIO core's phy_rst_n
+//     (low at power-up, firmware releases it); SYS_CLK_ETH_LINK_BIT is the MAC's
+//     stat_link_up, synchronized into cpu_clk by u_sync_status.
 //   * LEDs: led[0] system MMCM locked, led[1] DDR3 calibrated,
 //     led[3:2] core 0 SYS_LED[1:0], led[7:4] core 1 SYS_LED[3:0].
 // Language: SystemVerilog-2012 (synthesizable).
@@ -52,6 +60,9 @@
 //   * 11-09-2026: sid_player on the 50 MHz sid_clk (system MMCM CLKOUT4, u_rst_sid),
 //     rtlnet_axil_cdc (u_sid_cdc) for its register slot and sid_strm_cdc for the sample
 //     stream; arbiter NARROW_MASK and WRAP_MASK 1 (RTLNet f8435ad).
+//   * 11-09-2026: Phase 4 network path: u_mac, u_mdio (+ IOBUF), u_protocol on core 1's window;
+//     clk125, clk125_90 and axis_clk BUFGs with their reset synchronizers; RGMII, MDIO and
+//     eth_int_b ports; the MAC, MDIO and PROTOCOL stubs are gone.
 // Clocks: sysclk (100 MHz pin) -> u_mmcm_sys; cpu_clk, clk200, ddr_sys_clk,
 //   pix_clk, pix_clk_x5, aud_clk, ui_clk as above.
 // Pins: names, balls, banks and I/O standards from the Digilent
@@ -118,8 +129,32 @@ module c64_top
   input  logic       ps2_clk,
   input  logic       ps2_data,
 
-  // RTL8211E reset: ball U7, bank 34 (3.3 V), LVCMOS33, active low; held low
-  // (PHY in reset, its safe level) until the Phase 4 network path.
+  // RTL8211E RGMII receive (PHY -> FPGA), bank 13 (2.5 V), LVCMOS25:
+  // eth_rxck V13 (MRCC, receive clock 125/25/2.5 MHz), eth_rxctl W10,
+  // eth_rxd[0] AB16, [1] AA15, [2] AB15, [3] AB11 (balls as RTLNet's
+  // rtlnet_nexys_video.xdc, Digilent master XDC; schematic not re-checked here (VERIFY)).
+  input  logic       eth_rxck,
+  input  logic       eth_rxctl,
+  input  logic [3:0] eth_rxd,
+
+  // RTL8211E RGMII transmit (FPGA -> PHY), bank 13 (2.5 V), LVCMOS25:
+  // eth_txck AA14, eth_txctl V10, eth_txd[0] Y12, [1] W12, [2] W11, [3] Y11
+  // (VERIFY against the schematic).
+  output logic       eth_txck,
+  output logic       eth_txctl,
+  output logic [3:0] eth_txd,
+
+  // RTL8211E management, bank 13 (2.5 V), LVCMOS25: eth_mdc AA16 (FPGA -> PHY
+  // clock), eth_mdio Y16 (bidirectional, board pull-up; u_mdio_iobuf below is its
+  // only driver), eth_int_b Y14 (PHY interrupt, active low, asynchronous).
+  // (VERIFY against the schematic.)
+  output logic       eth_mdc,
+  inout  wire        eth_mdio,
+  input  logic       eth_int_b,
+
+  // RTL8211E reset: ball U7, bank 34 (3.3 V), LVCMOS33, active low; driven by
+  // the MDIO core (phy_rst_n), low (PHY in reset, its safe level) until the
+  // firmware releases it.
   output logic       eth_rst_b,
 
   // DDR3 SDRAM MT41K256M16 (16 bit, one rank), banks 34 and 35 (1.5 V), SSTL15
@@ -171,17 +206,19 @@ module c64_top
   localparam int          S1_ARB      = 3;
   localparam int          S1_PROT     = 4;
   localparam logic [NUM_SLV1*AW-1:0] SLAVE1_BASE = {
-    WIN1_BASE + WIN1_PROT_OFS,       // 4 PROTOCOL (stub until Phase 4)
+    WIN1_BASE + WIN1_PROT_OFS,       // 4 PROTOCOL
     WIN1_BASE + WIN1_ARB_OFS,        // 3 ARBITER
-    WIN1_BASE + WIN1_MDIO_OFS,       // 2 MDIO (stub until Phase 4)
-    WIN1_BASE + WIN1_MAC_OFS,        // 1 MAC (stub until Phase 4)
+    WIN1_BASE + WIN1_MDIO_OFS,       // 2 MDIO
+    WIN1_BASE + WIN1_MAC_OFS,        // 1 MAC
     WIN1_BASE + WIN1_SYS_OFS         // 0 SYS
   };
   localparam logic [NUM_SLV1*AW-1:0] SLAVE1_SIZE = {
     WIN1_PROT_SIZE, WIN1_SLOT_SIZE, WIN1_SLOT_SIZE, WIN1_SLOT_SIZE, WIN1_SLOT_SIZE};
-  localparam logic [NUM_SLV1-1:0] STUB1_MASK = 5'b1_0110;   // PROTOCOL, MDIO, MAC
-  localparam int          STUB_ADDR_W = 12;                 // rtlnet_axil_slave width of a stub slot
+  localparam int          MAC_ADDR_W  = 12;                 // rtlnet_eth_mac and rtlnet_mdio register port width
+  localparam int          PROT_ADDR_W = 16;                 // rtlnet_eth_protocol register port width (64 KiB slot)
   localparam int          ARB_ADDR_W  = 12;                 // rtlnet_axi_arbiter register port width
+  // Network (RTLNet nexys_video top values).
+  localparam int          POR_RESET_MS = 20;                // PHY reset hold after reset release (rtlnet_mdio)
   // DDR3 path (RTLNet values).
   localparam int          DDR_ADDR_W  = 29;                 // 512 MiB
   localparam int          DDR_DATA_W  = 128;
@@ -225,6 +262,15 @@ module c64_top
   logic pix_resetn;
   logic aud_resetn;
   logic sid_clk_mmcm;
+  logic clk125_mmcm;
+  logic clk125_90_mmcm;
+  logic axis_clk_mmcm;
+  logic clk125;                // 125 MHz, 0 deg: MAC transmit, RXC rate detector
+  logic clk125_90;             // 125 MHz, 90 deg: RGMII TXC forwarding only
+  logic axis_clk;              // 62.5 MHz: MAC client side, protocol filter
+  logic clk125_resetn;
+  logic clk200_resetn;
+  logic axis_resetn;
   logic sid_clk;               // 50 MHz: sid_player (reDIP-SID core), system MMCM CLKOUT4
   logic sid_resetn;
   logic ui_clk;                // 100 MHz: MIG user clock, DDR3 AXI4 side, arbiter datapath
@@ -444,6 +490,23 @@ module c64_top
   logic                    sx_arvalid, sx_arready, sx_rvalid, sx_rready;
   logic [CLK_STATUS_W-1:0] clk_status_async;
   logic [CLK_STATUS_W-1:0] clk_status;        // cpu_clk, synchronized
+  // Network: MAC/protocol streams (axis_clk), application ports (proto_clk, no application),
+  // CPU streams (cpu_clk): eth_tx = frames core 1 sends, eth_rx = frames to core 1.
+  logic [63:0]             mac_rx_tdata, mac_tx_tdata;
+  logic [7:0]              mac_rx_tkeep, mac_tx_tkeep;
+  logic                    mac_rx_tvalid, mac_rx_tlast, mac_rx_tready;
+  logic                    mac_tx_tvalid, mac_tx_tlast, mac_tx_tready;
+  logic [63:0]             app_rx_tdata;
+  logic [7:0]              app_rx_tkeep;
+  logic                    app_rx_tvalid, app_rx_tlast;
+  logic [63:0]             cpu_eth_tx_tdata, cpu_eth_rx_tdata;
+  logic [7:0]              cpu_eth_tx_tkeep, cpu_eth_rx_tkeep;
+  logic                    cpu_eth_tx_tvalid, cpu_eth_tx_tlast, cpu_eth_tx_tready;
+  logic                    cpu_eth_rx_tvalid, cpu_eth_rx_tlast, cpu_eth_rx_tready;
+  logic                    mac_stat_link_up;
+  logic                    mdio_o, mdio_t, mdio_i;
+  logic                    phy_rst_n;
+  logic                    mdio_irq;
   logic [7:0]              led0;              // core 0 SYS_LED
   logic [7:0]              led1;              // core 1 SYS_LED
   logic [TMDS_W-1:0]       tmds_word [TMDS_LANES];   // 0 blue, 1 green, 2 red, 3 clock
@@ -454,12 +517,11 @@ module c64_top
 
   // ---------------------------------------------------------------------------
   // System MMCM: RTLNet's configuration, VCO = 100 MHz x 10 = 1000 MHz.
-  // CLKOUT2 /5 = 200 MHz, CLKOUT5 /10 = 100 MHz, CLKOUT6 /10 = 100 MHz; CLKOUT0
-  // CLKOUT4 /20 = 50 MHz sid_clk (sid_player; also usable later by the network
-  // cores); CLKOUT0 /8, CLKOUT1 /8 at 90 deg and CLKOUT3 /16 are kept for the
-  // Phase 4 network clocks and left unconnected (no BUFG). RST tied low: the
-  // oscillator runs before configuration ends, and the button resets logic,
-  // not the MMCM.
+  // CLKOUT0 /8 = 125 MHz clk125, CLKOUT1 /8 at 90 deg (2 ns) = 125 MHz clk125_90,
+  // CLKOUT2 /5 = 200 MHz, CLKOUT3 /16 = 62.5 MHz axis_clk, CLKOUT4 /20 = 50 MHz
+  // sid_clk (sid_player and the protocol's proto_clk/app_clk), CLKOUT5 /10 = 100 MHz,
+  // CLKOUT6 /10 = 100 MHz. RST tied low: the oscillator runs before
+  // configuration ends, and the button resets logic, not the MMCM.
   // ---------------------------------------------------------------------------
   MMCME2_ADV #(
     .BANDWIDTH            ("OPTIMIZED"),
@@ -509,13 +571,13 @@ module c64_top
     .CLKFBIN      (clkfb_bufg),
     .CLKFBOUT     (clkfb),
     .CLKFBOUTB    (),
-    .CLKOUT0      (),
+    .CLKOUT0      (clk125_mmcm),
     .CLKOUT0B     (),
-    .CLKOUT1      (),
+    .CLKOUT1      (clk125_90_mmcm),
     .CLKOUT1B     (),
     .CLKOUT2      (clk200_mmcm),
     .CLKOUT2B     (),
-    .CLKOUT3      (),
+    .CLKOUT3      (axis_clk_mmcm),
     .CLKOUT3B     (),
     .CLKOUT4      (sid_clk_mmcm),
     .CLKOUT5      (cpu_clk_mmcm),
@@ -540,6 +602,9 @@ module c64_top
 
   BUFG u_bufg_fb     (.I(clkfb),            .O(clkfb_bufg));
   BUFG u_bufg_clk200 (.I(clk200_mmcm),      .O(clk200));
+  BUFG u_bufg_clk125    (.I(clk125_mmcm),    .O(clk125));
+  BUFG u_bufg_clk125_90 (.I(clk125_90_mmcm), .O(clk125_90));
+  BUFG u_bufg_axis      (.I(axis_clk_mmcm),  .O(axis_clk));
   BUFG u_bufg_cpu    (.I(cpu_clk_mmcm),     .O(cpu_clk));
   BUFG u_bufg_ddrsys (.I(ddr_sys_clk_mmcm), .O(ddr_sys_clk));
 
@@ -673,7 +738,7 @@ module c64_top
   BUFG u_bufg_aud_fb (.I(aud_clkfb),    .O(aud_clkfb_bufg));
   BUFG u_bufg_aud    (.I(aud_clk_mmcm), .O(aud_clk));
 
-  // 50 MHz SID clock from the system MMCM (CLKOUT4); also usable later by the network cores.
+  // 50 MHz SID clock from the system MMCM (CLKOUT4); also the network protocol's proto_clk.
   BUFG u_bufg_sid    (.I(sid_clk_mmcm), .O(sid_clk));
 
   // The one reset assertion: button pressed or system MMCM not locked. The
@@ -686,6 +751,10 @@ module c64_top
   rtlnet_reset_sync u_rst_pix (.clk(pix_clk), .arstn(pix_arstn), .resetn(pix_resetn));
   rtlnet_reset_sync u_rst_aud (.clk(aud_clk), .arstn(aud_arstn), .resetn(aud_resetn));
   rtlnet_reset_sync u_rst_sid (.clk(sid_clk), .arstn(rst_arstn), .resetn(sid_resetn));
+  // Network domains (RTLNet): the MAC uses clk125_resetn for clk125 and clk125_90.
+  rtlnet_reset_sync u_rst_clk125 (.clk(clk125),   .arstn(rst_arstn), .resetn(clk125_resetn));
+  rtlnet_reset_sync u_rst_clk200 (.clk(clk200),   .arstn(rst_arstn), .resetn(clk200_resetn));
+  rtlnet_reset_sync u_rst_axis   (.clk(axis_clk), .arstn(rst_arstn), .resetn(axis_resetn));
 
   // Reset release into ui_clk (RTLNet): the board reset assertion enters the
   // chain; the MIG ui reset (a ui_clk flop output) is ANDed into the released,
@@ -699,7 +768,7 @@ module c64_top
   assign clk_status_async[SYS_CLK_DDR_CALIB_BIT]  = ddr_calib;
   assign clk_status_async[SYS_CLK_AUD_LOCKED_BIT] = aud_locked;
   assign clk_status_async[SYS_CLK_HDMI_HPD_BIT]   = hdmi_tx_hpd;
-  assign clk_status_async[SYS_CLK_ETH_LINK_BIT]   = 1'b0;          // Phase 4
+  assign clk_status_async[SYS_CLK_ETH_LINK_BIT]   = mac_stat_link_up;   // cpu_clk register of u_mac, re-synchronized here
   rtlnet_sync #(
     .WIDTH (CLK_STATUS_W)
   ) u_sync_status (
@@ -715,7 +784,7 @@ module c64_top
   // (cpu_clk), the clock of c64_video's port A, and c64_video has its own reset.
   // ---------------------------------------------------------------------------
   assign irq0 = {5'b0_0000, ps2_irq, vid_irq, aud_irq};
-  assign irq1 = 8'h00;
+  assign irq1 = {7'd0, mdio_irq};
 
   c64_cpu u_cpu (
     .clk                (cpu_clk),
@@ -775,16 +844,16 @@ module c64_top
     .M_AXI_DRV_rresp    (c1_rresp),
     .M_AXI_DRV_rvalid   (c1_rvalid),
     .M_AXI_DRV_rready   (c1_rready),
-    .S_AXIS_ETH_tdata   (64'd0),
-    .S_AXIS_ETH_tkeep   (8'd0),
-    .S_AXIS_ETH_tlast   (1'b0),
-    .S_AXIS_ETH_tvalid  (1'b0),
-    .S_AXIS_ETH_tready  (),
-    .M_AXIS_ETH_tdata   (),
-    .M_AXIS_ETH_tkeep   (),
-    .M_AXIS_ETH_tlast   (),
-    .M_AXIS_ETH_tvalid  (),
-    .M_AXIS_ETH_tready  (1'b1),
+    .S_AXIS_ETH_tdata   (cpu_eth_rx_tdata),
+    .S_AXIS_ETH_tkeep   (cpu_eth_rx_tkeep),
+    .S_AXIS_ETH_tlast   (cpu_eth_rx_tlast),
+    .S_AXIS_ETH_tvalid  (cpu_eth_rx_tvalid),
+    .S_AXIS_ETH_tready  (cpu_eth_rx_tready),
+    .M_AXIS_ETH_tdata   (cpu_eth_tx_tdata),
+    .M_AXIS_ETH_tkeep   (cpu_eth_tx_tkeep),
+    .M_AXIS_ETH_tlast   (cpu_eth_tx_tlast),
+    .M_AXIS_ETH_tvalid  (cpu_eth_tx_tvalid),
+    .M_AXIS_ETH_tready  (cpu_eth_tx_tready),
     .M_AXI_DDR_awaddr   (cpu_ddr_awaddr),
     .M_AXI_DDR_awlen    (cpu_ddr_awlen),
     .M_AXI_DDR_awsize   (cpu_ddr_awsize),
@@ -1082,7 +1151,7 @@ module c64_top
   );
 
   // ---------------------------------------------------------------------------
-  // Register window 1 (core 1): SYS, ARBITER, and the Phase 4 stubs.
+  // Register window 1 (core 1): SYS, ARBITER and the network cores (below).
   // ---------------------------------------------------------------------------
   rtlnet_axil_decoder #(
     .N          (NUM_SLV1),
@@ -1159,50 +1228,201 @@ module c64_top
     .led           (led1)
   );
 
-  // Empty slots: the shared slave bridge with a constant-zero register file
-  // (OKAY, read 0, writes ignored), as RTLNet's stub windows.
-  genvar gs;
-  generate
-    for (gs = 0; gs < NUM_SLV1; gs++) begin : g_stub
-      if (STUB1_MASK[gs]) begin : g_on
-        logic                   stub_wr_en;
-        logic [STUB_ADDR_W-1:0] stub_wr_addr;
-        logic [31:0]            stub_wr_data;
-        logic                   stub_rd_en;
-        logic [STUB_ADDR_W-1:0] stub_rd_addr;
+  // ---------------------------------------------------------------------------
+  // Network (RTLNet nexys_video top, network build, without the UDP echo core):
+  // MAC (RGMII pin layer u_mac/u_rgmii_io is named by third_party/rtlnet
+  // rtlnet_nexys_video_rgmii.xdc), MDIO/PHY reset core, protocol wrapper.
+  // The protocol keeps the node MAC address in registers (DEFAULT_LOCAL_MAC at
+  // reset, the firmware writes LOCAL_MAC_HI/LO); it has no hostname parameter.
+  // ---------------------------------------------------------------------------
+  rtlnet_eth_mac #(
+    .RX_FIFO_KB      (8),
+    .TX_FIFO_KB      (8),
+    .MAX_FRAME_BYTES (1518),
+    .RX_IDELAY_TAP   (12),
+    .RAM_STYLE       ("block")
+  ) u_mac (
+    .clk125            (clk125),
+    .clk125_90         (clk125_90),
+    .clk200            (clk200),
+    .axis_clk          (axis_clk),
+    .s_axi_aclk        (cpu_clk),
+    .clk125_resetn     (clk125_resetn),
+    .clk200_resetn     (clk200_resetn),
+    .axis_resetn       (axis_resetn),
+    .s_axi_aresetn     (cpu_resetn_sync),
+    .rgmii_rxc         (eth_rxck),
+    .rgmii_rxd         (eth_rxd),
+    .rgmii_rx_ctl      (eth_rxctl),
+    .rgmii_txc         (eth_txck),
+    .rgmii_txd         (eth_txd),
+    .rgmii_tx_ctl      (eth_txctl),
+    .m_axis_rx_tdata   (mac_rx_tdata),
+    .m_axis_rx_tkeep   (mac_rx_tkeep),
+    .m_axis_rx_tvalid  (mac_rx_tvalid),
+    .m_axis_rx_tlast   (mac_rx_tlast),
+    .m_axis_rx_tready  (mac_rx_tready),
+    .s_axis_tx_tdata   (mac_tx_tdata),
+    .s_axis_tx_tkeep   (mac_tx_tkeep),
+    .s_axis_tx_tvalid  (mac_tx_tvalid),
+    .s_axis_tx_tlast   (mac_tx_tlast),
+    .s_axis_tx_tready  (mac_tx_tready),
+    .s_axi_awaddr       (d1_awaddr[S1_MAC*AW +: MAC_ADDR_W]),
+    .s_axi_awvalid      (d1_awvalid[S1_MAC]),
+    .s_axi_awready      (d1_awready[S1_MAC]),
+    .s_axi_wdata        (d1_wdata[S1_MAC*32 +: 32]),
+    .s_axi_wstrb        (d1_wstrb[S1_MAC*4 +: 4]),
+    .s_axi_wvalid       (d1_wvalid[S1_MAC]),
+    .s_axi_wready       (d1_wready[S1_MAC]),
+    .s_axi_bresp        (d1_bresp[S1_MAC*2 +: 2]),
+    .s_axi_bvalid       (d1_bvalid[S1_MAC]),
+    .s_axi_bready       (d1_bready[S1_MAC]),
+    .s_axi_araddr       (d1_araddr[S1_MAC*AW +: MAC_ADDR_W]),
+    .s_axi_arvalid      (d1_arvalid[S1_MAC]),
+    .s_axi_arready      (d1_arready[S1_MAC]),
+    .s_axi_rdata        (d1_rdata[S1_MAC*32 +: 32]),
+    .s_axi_rresp        (d1_rresp[S1_MAC*2 +: 2]),
+    .s_axi_rvalid       (d1_rvalid[S1_MAC]),
+    .s_axi_rready       (d1_rready[S1_MAC]),
+    .stat_link_up      (mac_stat_link_up),
+    .stat_speed        (),
+    .stat_rx_clk_ok    (),
+    .ev_rx_good        (),
+    .ev_rx_bad         (),
+    .ev_tx_frame       ()
+  );
 
-        rtlnet_axil_slave #(
-          .ADDR_W (STUB_ADDR_W)
-        ) u_stub (
-          .s_axi_aclk    (cpu_clk),
-          .s_axi_aresetn (cpu_resetn_sync),
-          .s_axi_awaddr  (d1_awaddr[gs*AW +: STUB_ADDR_W]),
-          .s_axi_awvalid (d1_awvalid[gs]),
-          .s_axi_awready (d1_awready[gs]),
-          .s_axi_wdata   (d1_wdata[gs*32 +: 32]),
-          .s_axi_wstrb   (d1_wstrb[gs*4 +: 4]),
-          .s_axi_wvalid  (d1_wvalid[gs]),
-          .s_axi_wready  (d1_wready[gs]),
-          .s_axi_bresp   (d1_bresp[gs*2 +: 2]),
-          .s_axi_bvalid  (d1_bvalid[gs]),
-          .s_axi_bready  (d1_bready[gs]),
-          .s_axi_araddr  (d1_araddr[gs*AW +: STUB_ADDR_W]),
-          .s_axi_arvalid (d1_arvalid[gs]),
-          .s_axi_arready (d1_arready[gs]),
-          .s_axi_rdata   (d1_rdata[gs*32 +: 32]),
-          .s_axi_rresp   (d1_rresp[gs*2 +: 2]),
-          .s_axi_rvalid  (d1_rvalid[gs]),
-          .s_axi_rready  (d1_rready[gs]),
-          .reg_wr_en     (stub_wr_en),
-          .reg_wr_addr   (stub_wr_addr),
-          .reg_wr_data   (stub_wr_data),
-          .reg_rd_en     (stub_rd_en),
-          .reg_rd_addr   (stub_rd_addr),
-          .reg_rd_data   (32'd0)
-        );
-      end
-    end
-  endgenerate
+  // PHY management GPIO core: MDC/MDIO through the pad buffer, PHY reset.
+  rtlnet_mdio #(
+    .CLK_HZ       (CPU_CLK_HZ),
+    .POR_RESET_MS (POR_RESET_MS)
+  ) u_mdio (
+    .clk           (cpu_clk),
+    .resetn        (cpu_resetn_sync),
+    .s_axi_awaddr  (d1_awaddr[S1_MDIO*AW +: MAC_ADDR_W]),
+    .s_axi_awvalid (d1_awvalid[S1_MDIO]),
+    .s_axi_awready (d1_awready[S1_MDIO]),
+    .s_axi_wdata   (d1_wdata[S1_MDIO*32 +: 32]),
+    .s_axi_wstrb   (d1_wstrb[S1_MDIO*4 +: 4]),
+    .s_axi_wvalid  (d1_wvalid[S1_MDIO]),
+    .s_axi_wready  (d1_wready[S1_MDIO]),
+    .s_axi_bresp   (d1_bresp[S1_MDIO*2 +: 2]),
+    .s_axi_bvalid  (d1_bvalid[S1_MDIO]),
+    .s_axi_bready  (d1_bready[S1_MDIO]),
+    .s_axi_araddr  (d1_araddr[S1_MDIO*AW +: MAC_ADDR_W]),
+    .s_axi_arvalid (d1_arvalid[S1_MDIO]),
+    .s_axi_arready (d1_arready[S1_MDIO]),
+    .s_axi_rdata   (d1_rdata[S1_MDIO*32 +: 32]),
+    .s_axi_rresp   (d1_rresp[S1_MDIO*2 +: 2]),
+    .s_axi_rvalid  (d1_rvalid[S1_MDIO]),
+    .s_axi_rready  (d1_rready[S1_MDIO]),
+    .mdc           (eth_mdc),
+    .mdio_o        (mdio_o),
+    .mdio_t        (mdio_t),
+    .mdio_i        (mdio_i),
+    .phy_rst_n     (phy_rst_n),
+    .phy_int_n     (eth_int_b),
+    .irq           (mdio_irq)
+  );
+
+  // MDIO pad: the only driver of eth_mdio; mdio_t = 1 releases the line.
+  IOBUF u_mdio_iobuf (
+    .I  (mdio_o),
+    .T  (mdio_t),
+    .O  (mdio_i),
+    .IO (eth_mdio)
+  );
+
+  // Protocol wrapper with its leaves (ARP, ICMP, DHCP, iperf) and the CPU path.
+  // UDP_ENABLE 0 (the wrapper then idles its application ports itself); with the
+  // sockets built but no application (RTLNet's echo core is not part of this
+  // design) synthesis removes the socket FIFOs and the CDC constraint step fails.
+  // The application ports are tied off as well: transmit idle, receive ready.
+  rtlnet_eth_protocol #(
+    .PROTO_CLK_HZ    (SID_CLK_HZ),   // sid_clk is the protocol leaf clock
+    .INGRESS_FIFO_KB (16),
+    .EGRESS_FIFO_KB  (8),
+    .ARP_ENABLE      (1),
+    .ICMP_ENABLE     (1),
+    .DHCP_ENABLE     (1),
+    .IPERF_ENABLE    (1),
+    .UDP_ENABLE      (0),             // no application on the socket streams: the socket layer would be optimized away
+    .ICMP_BUF_KB     (2),
+    .DHCP_BUF_KB     (1),
+    .IPERF_PORT      (5001),
+    .NUM_SOCKETS     (4),
+    .UDP_RX_BUF_KB   (16),
+    .UDP_TX_BUF_KB   (8),
+    .CPU_PATH_ENABLE (1),
+    .CPU_RX_FIFO_KB  (32),            // holds the open TCP windows of several lwIP connections
+    .CPU_TX_FIFO_KB  (8),
+    .CPU_CLASSIFIER_ENABLE (1),       // drop-all until the firmware configures it
+    .CPU_TCP_OFFLOAD_ENABLE (1),      // checksum insert on transmit, trailer on receive; power-up pass-through
+    .CPU_AXIS_CLK_HZ (CPU_CLK_HZ),
+    .RAM_STYLE       ("block")
+  ) u_protocol (
+    .axis_clk          (axis_clk),
+    .proto_clk         (sid_clk),
+    .app_clk           (sid_clk),
+    .s_axi_aclk        (cpu_clk),
+    .axis_resetn       (axis_resetn),
+    .proto_resetn      (sid_resetn),
+    .app_resetn        (sid_resetn),
+    .s_axi_aresetn     (cpu_resetn_sync),
+    .s_axis_tdata      (mac_rx_tdata),
+    .s_axis_tkeep      (mac_rx_tkeep),
+    .s_axis_tvalid     (mac_rx_tvalid),
+    .s_axis_tlast      (mac_rx_tlast),
+    .s_axis_tready     (mac_rx_tready),
+    .m_axis_tdata      (mac_tx_tdata),
+    .m_axis_tkeep      (mac_tx_tkeep),
+    .m_axis_tvalid     (mac_tx_tvalid),
+    .m_axis_tlast      (mac_tx_tlast),
+    .m_axis_tready     (mac_tx_tready),
+    .m_axis_app_tdata  (app_rx_tdata),
+    .m_axis_app_tkeep  (app_rx_tkeep),
+    .m_axis_app_tvalid (app_rx_tvalid),
+    .m_axis_app_tlast  (app_rx_tlast),
+    .m_axis_app_tready (1'b1),
+    .s_axis_app_tdata  (64'd0),
+    .s_axis_app_tkeep  (8'd0),
+    .s_axis_app_tvalid (1'b0),
+    .s_axis_app_tlast  (1'b0),
+    .s_axis_app_tready (),
+    .s_axi_awaddr       (d1_awaddr[S1_PROT*AW +: PROT_ADDR_W]),
+    .s_axi_awvalid      (d1_awvalid[S1_PROT]),
+    .s_axi_awready      (d1_awready[S1_PROT]),
+    .s_axi_wdata        (d1_wdata[S1_PROT*32 +: 32]),
+    .s_axi_wstrb        (d1_wstrb[S1_PROT*4 +: 4]),
+    .s_axi_wvalid       (d1_wvalid[S1_PROT]),
+    .s_axi_wready       (d1_wready[S1_PROT]),
+    .s_axi_bresp        (d1_bresp[S1_PROT*2 +: 2]),
+    .s_axi_bvalid       (d1_bvalid[S1_PROT]),
+    .s_axi_bready       (d1_bready[S1_PROT]),
+    .s_axi_araddr       (d1_araddr[S1_PROT*AW +: PROT_ADDR_W]),
+    .s_axi_arvalid      (d1_arvalid[S1_PROT]),
+    .s_axi_arready      (d1_arready[S1_PROT]),
+    .s_axi_rdata        (d1_rdata[S1_PROT*32 +: 32]),
+    .s_axi_rresp        (d1_rresp[S1_PROT*2 +: 2]),
+    .s_axi_rvalid       (d1_rvalid[S1_PROT]),
+    .s_axi_rready       (d1_rready[S1_PROT]),
+    .cpu_axis_clk           (cpu_clk),
+    .cpu_axis_resetn        (cpu_resetn_sync),
+    .m_axis_cpu_eth_tdata   (cpu_eth_rx_tdata),
+    .m_axis_cpu_eth_tkeep   (cpu_eth_rx_tkeep),
+    .m_axis_cpu_eth_tvalid  (cpu_eth_rx_tvalid),
+    .m_axis_cpu_eth_tlast   (cpu_eth_rx_tlast),
+    .m_axis_cpu_eth_tready  (cpu_eth_rx_tready),
+    .s_axis_cpu_eth_tdata   (cpu_eth_tx_tdata),
+    .s_axis_cpu_eth_tkeep   (cpu_eth_tx_tkeep),
+    .s_axis_cpu_eth_tvalid  (cpu_eth_tx_tvalid),
+    .s_axis_cpu_eth_tlast   (cpu_eth_tx_tlast),
+    .s_axis_cpu_eth_tready  (cpu_eth_tx_tready),
+    .stat_ip_valid     (),
+    .stat_dhcp_bound   (),
+    .ev_rx_frame       (),
+    .ev_tx_frame       ()
+  );
 
   // ---------------------------------------------------------------------------
   // DDR3 path (RTLNet): bridge cpu_clk -> ui_clk, arbiter, MIG.
@@ -1601,9 +1821,9 @@ module c64_top
   assign ac_dac_sdata = ac_dac_sdata_q;
 
   // ---------------------------------------------------------------------------
-  // Ethernet PHY held in reset; LEDs.
+  // Ethernet PHY reset (MDIO core); LEDs.
   // ---------------------------------------------------------------------------
-  assign eth_rst_b = 1'b0;
+  assign eth_rst_b = phy_rst_n;
   assign led = {led1[3:0], led0[1:0], clk_status[SYS_CLK_DDR_CALIB_BIT], mmcm_locked};
 
 endmodule

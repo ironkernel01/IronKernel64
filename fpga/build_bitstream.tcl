@@ -29,8 +29,22 @@
 #     third_party/redip-sid/ik64; the +incdir in fpga/c64_top.f becomes
 #     synth_design -include_dirs, which is where Vivado finds them.
 #   * Expected crossing instances (a change fails the build until reviewed):
-#     fifo 5 (u_ddr_cdc u_aw/w/b/ar/r_fifo), axil_cdc 2 (u_arb register port,
-#     u_sid_cdc SID register slot), gray 2 (u_video frame and line counters).
+#     fifo 12: u_ddr_cdc u_aw/w/b/ar/r_fifo (5); u_mac u_rx_fifo and u_tx_fifo,
+#       u_protocol u_ingress_fifo and u_egress_fifo, u_protocol u_cpu_rx_fifo and
+#       u_cpu_tx_fifo, and the checksum offload's u_tx/u_tx_fifo (7; RTLNet's
+#       network build counts these plus the UDP socket layer's u_rx_fifo,
+#       u_tx_fifo and u_tx_desc_fifo, absent here: UDP_ENABLE 0, no application);
+#     axil_cdc 6: u_arb register port, u_sid_cdc SID register slot, the MAC's
+#       and the protocol wrapper's register crossings, the CPU-path classifier's
+#       and the checksum offload's u_axil_cdc (RTLNet's network build has the
+#       same four network ones; its UDP echo, CSI2, S2MM and framebuffer ones
+#       are not in this design);
+#     gray 8: u_video frame and line counters (2); u_mac u_tx_count_sync, the
+#       protocol wrapper's four ingress/egress counter crossings and its CPU
+#       transmit reject counter u_cnt_cpu_reject_sync (6, as RTLNet).
+#     The RGMII interface timing (third_party/rtlnet/boards/nexys_video/
+#     constraints/rtlnet_nexys_video_rgmii.xdc) is read after synthesis because
+#     it names u_mac/u_rgmii_io cells.
 #     The audio sample FIFO and the SID stream FIFO (u_sid_strm) are
 #     xpm_fifo_async, which rtlnet_constrain_cdc.tcl does not count as a class;
 #     their crossings carry the XPM macro's own constraints.
@@ -63,6 +77,9 @@
 # Revision: 11-09-2026
 #   * 11-09-2026: initial version.
 #   * 11-09-2026: SID sources and tables via fpga/c64_top.f (+incdir); no gate changed.
+#   * 11-09-2026: Phase 4 network (u_mac, u_mdio, u_protocol): RGMII XDC after synthesis; CDC expectation fifo 12,
+#     axil_cdc 6, gray 8 (each count named in the header); TIMING-47 waiver for the RGMII same-edge false paths
+#     (RTLNet's own waiver); no existing gate loosened.
 #   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
 #     u_sid_strm/u_fifo joins the async-reset exceptions.
 # -----------------------------------------------------------------------------
@@ -225,9 +242,14 @@ foreach re $mig_re_list {
   puts "ik64_build: ASYNC_REG set on [llength $cells] MIG reset synchronizer cells ($re)"
 }
 
+# RGMII interface timing (names the MAC's pin-layer cells, so it is read on the synthesized netlist).
+set rgmii_xdc [file join $RTLNET boards nexys_video constraints rtlnet_nexys_video_rgmii.xdc]
+if {![file exists $rgmii_xdc]} { nv_exit 11 "XDC not found: $rgmii_xdc" }
+if {[catch {read_xdc $rgmii_xdc} err]} { nv_exit 13 "RGMII constraints: $err" }
+
 # Crossing constraints by cell name (counts in the header).
 set ::rtlnet_cdc_required {sync reset gray fifo axil_cdc}
-set ::rtlnet_cdc_expect   {fifo 5 axil_cdc 2 gray 2}
+set ::rtlnet_cdc_expect   {fifo 12 axil_cdc 6 gray 8}
 set ::rtlnet_cdc_report   [file join $RPT_DIR cdc_instances.txt]
 if {[catch {source [file join $RTLNET scripts rtlnet_constrain_cdc.tcl]} err]} { nv_exit 13 "CDC constraints: $err" }
 
@@ -406,6 +428,8 @@ set meth_waivers {
            {rst_arstn / pix_arstn / aud_arstn = button AND MMCM locked into the rtlnet_reset_sync chains only}}
   {TIMING-9 {.}
            {report_cdc (gated above: no Critical/Warning) shows every crossing synchronized; the asynchronous groups are the MDM BSCAN clocks of the vendor IP}}
+  {TIMING-47 {^A False Path timing constraint is set between synchronous clocks rgmii_rxc_v and rgmii_rxc }
+           {RGMII same-edge capture: the opposite-edge setup and same-edge hold pairs of the DDR input describe no capture (rtlnet_nexys_video_rgmii.xdc, MAC documentation section 6)}}
   {LUTAR-1 proc:nv_waive_mig_lutar
            {AMD MIG IP u_ddr/g_amd.u_ddr/u_mig: vendor-generated reset logic, LUT u_iodelay_ctrl/rstdiv2_sync_r[11]_i_1 drives the PRE pins of the replicated rstdiv0_sync_r1_reg_rep cells of u_ddr3_infrastructure (reset synchronizer, no user logic)}
            {match}}
