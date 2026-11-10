@@ -1477,7 +1477,7 @@ void basic_init(const basic_config_t *cfg)
         g_cfg.mem_info(&ram, &free_bytes);
     }
     ram_line(line, sizeof(line), ram, free_bytes);
-    put_text("\r    **** COMMODORE 64 BASIC V2 ****\r\r");
+    put_text("\r     **** IRONCORE 64 BASIC V2 ****\r\r");
     put_text(line);
     put_text("\r\rREADY.\r");
     g_shown_row = BASIC_ROWS;
