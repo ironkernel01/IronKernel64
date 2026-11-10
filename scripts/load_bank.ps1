@@ -19,8 +19,9 @@ Overview:
     scripts/jtag_load.ps1 -Core 1 -Bank <bank.bin> instead.
   * -DryRun: prints the xsdb command sequence using plain tclsh: no hw_server, no xsdb, no
     connect, no board lock needed. Exits 0.
-  * The bank image is private tune data and stays out of the repo: build it with
-    python -I tools/mkbank.py bank/private -o build/bank/private.bin
+  * The bank image holds only the public tunes (ik64 arrangements of public-domain compositions, scores in
+    bank/public). Build it with one command; the image stays in build/:
+    python -I tools/mkpublicbank.py        (writes build/bank/public.bin; packer: tools/mkbank.py)
 Usage:
   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/load_bank.ps1 -Bank <bank.bin> [-DryRun]
 Exit codes: 0 PASS, 1 failure, 2 setup/lock error.

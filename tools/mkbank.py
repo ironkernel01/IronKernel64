@@ -3,6 +3,7 @@ File: mkbank.py
 Purpose: pack a folder of PSID tunes into the device 9 bank image (format in
   fw_1541/src/bank_format.h, the only packer of that format).
 Usage: python -I tools/mkbank.py <folder> -o <bank.bin> [--max-bytes N]
+  e.g. python -I tools/mkbank.py build/bank/public -o build/bank/public.bin
 Behavior:
   * Takes every *.sid file of the folder (not recursive), sorted by file name, case-insensitive.
     The entry name is the file name as on the share ("Airwolf.sid"); cbmdos hides the extension.
@@ -13,7 +14,8 @@ Behavior:
     tool fails and writes nothing. --max-bytes overrides the limit (tests).
   * Prints the table (name, offset, size, CRC-32) and the total.
   * The tunes are never copied anywhere but into the output file; the .sid files and the bank are
-    git-ignored (bank/private/, build/).
+    git-ignored (*.sid, build/). The public bank (device 9) is built by tools/mkpublicbank.py, which runs
+    tools/mksid.py on bank/public/*.txt and then this packer on build/bank/public.
 Exit codes: 0 written, 1 a tune or the folder is rejected, 2 usage / environment.
 Revision: 11-10-2026
   * 11-10-2026: initial version.

@@ -1,0 +1,34 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; In the Hall of the Mountain King: theme from Peer Gynt, Suite No. 1, by Edvard Grieg (1875, public domain).
+; Notes written from the composition (B minor); the build-up, harmony and percussion are the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth.
+title: Hall of the Mountain King
+author: Grieg, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 132
+tpq: 4
+meter: 2/4
+
+inst lead  wave=pulse a=0 d=8 s=11 r=3 pw=0.45 pwspeed=3 vibcents=20 vibdelay=12 vibrate=5.5
+inst bright wave=pulse a=0 d=7 s=9  r=3 pw=0.30 pwspeed=-4 vibcents=16 vibdelay=8 vibrate=6.0
+inst hi    wave=saw   a=0 d=9 s=11 r=4 vibcents=20 vibdelay=10 vibrate=6.0
+inst harm  wave=pulse a=0 d=6 s=7  r=3 pw=0.25 pwspeed=5 gate=9
+inst bass  wave=tri   a=0 d=8 s=10 r=3 gate=8
+inst drum  wave=noise a=0 d=5 s=0  r=4 gate=3 hr=0
+
+; the theme, two phrases of four bars
+pat PA:
+  b3/8 c#4 d4 e4 | f#4 d4 f#4/4 | f4/8 c#4 f4/4 | e4/8 c#4 e4/4 |
+pat PB:
+  b3/8 c#4 d4 e4 | f#4 d4 f#4/4 | b4/8 a4 f#4 d4 | f#4/4 a4/4 |
+pat R32:
+  r/=32
+pat PED:
+  @bass b2/8 b2 b3 b2 | b2 b2 b3 b2 | b2 b2 b3 b2 | b2 b2 b3 b2 |
+pat DR:
+  @drum d6/8 r/8 d6/8 d6/8 | d6 r d6 d6 | d6 r d6 d6 | d6 d6 d6 d6 |
+
+; 1 bass alone, 2 lead and pedal, 3 harmony joins, 4 octave up with drums, 5 loudest, 6 bass again with theme, 7 and 8 climb
+voice 1: R32 R32  PA@lead PB  PA@bright PB  PA+12@hi PB+12  PA+12 PB+12  PA+12@bright PB+12  PA+24@hi PB+24  PA+12@hi PB+12
+voice 2: R32 R32  R32 R32  PA+7@harm PB+7  DR DR  PA+19@harm PB+19  DR DR  PA+19 PB+19  PA+7 PB+7
+voice 3: PA-12@bass PB-12  PED PED  PED PED  PED PED  PED PED  PA-12 PB-12  PED PED  PED PED

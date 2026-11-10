@@ -1,0 +1,36 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Canon in D by Johann Pachelbel (c. 1690, public domain): the ground bass and the theme are the composition
+; (written from it); the three variations over the same chords and the registration are the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth, a bar is 4/4 (16 ticks).
+title: Canon in D
+author: Pachelbel, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 70
+tpq: 4
+meter: 4/4
+
+inst lead  wave=pulse a=1 d=8 s=10 r=5 pw=0.50 pwspeed=2 vibcents=22 vibdelay=16 vibrate=5.2
+inst two   wave=pulse a=1 d=8 s=9  r=5 pw=0.32 pwspeed=-3 vibcents=18 vibdelay=18 vibrate=5.6
+inst bass  wave=tri   a=1 d=10 s=13 r=7
+
+; ground bass D A B F# G D G A, one note per half bar
+pat GR:
+  @bass d3/2 a2 | b2 f#2 | g2 d2 | g2 a2 |
+; theme (half notes), then quarters, eighths, sixteenths over the same chords
+pat V1:
+  @lead f#5/2 e5 | d5 c#5 | b4 a4 | b4 c#5 |
+pat V2:
+  @lead a4/4 d5 c#5 e5 | d5 f#5 c#5 a4 | b4 d5 a4 f#4 | g4 b4 c#5 e5 |
+pat V3:
+  @lead d5/8 f#5 a5 f#5 c#5 e5 a5 e5 | d5 f#5 b5 f#5 c#5 f#5 a5 f#5 | d5 g5 b5 g5 d5 f#5 a5 f#5 | d5 g5 b5 g5 c#5 e5 a5 e5 |
+pat V4:
+  @lead d4/16 f#4 a4 d5 a4 f#4 d4 f#4  c#4 e4 a4 c#5 a4 e4 c#4 e4 |
+  d4 f#4 b4 d5 b4 f#4 d4 f#4  c#4 f#4 a4 c#5 a4 f#4 c#4 f#4 |
+  d4 g4 b4 d5 b4 g4 d4 g4  d4 f#4 a4 d5 a4 f#4 d4 f#4 |
+  d4 g4 b4 d5 b4 g4 d4 g4  c#4 e4 a4 c#5 a4 e4 c#4 e4 |
+pat R64:
+  r/=64
+
+voice 1: V1 V2 V3 V4
+voice 2: R64 V1-12@two V2-12 V3-12
+voice 3: GR GR GR GR

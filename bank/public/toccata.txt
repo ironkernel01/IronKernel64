@@ -1,0 +1,54 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Toccata and Fugue in D minor, BWV 565: the opening gesture, by Johann Sebastian Bach (public domain).
+; The first two statements (the octave-doubled mordent and run) are written from the composition.
+; The rolled chords, the cascades and the closing chord are a toccata-style continuation of the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a thirty-second note.
+title: Toccata in D minor
+author: J. S. Bach, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 56
+tpq: 8
+meter: 4/4
+
+inst organ  wave=pulse a=0 d=0 s=15 r=2 pw=0.50 hr=1
+inst organ2 wave=saw   a=0 d=0 s=12 r=2 hr=1
+inst ped    wave=tri   a=0 d=0 s=15 r=3 hr=1
+
+; the opening gesture: A G A (mordent), hold, G F E D C# D, hold (48 ticks)
+pat T1:
+  @organ a5/32 g5/32 a5/=22 g5/16 f5 e5 d5 c#5 d5/=14
+pat T1b:
+  @organ2 a5/32 g5/32 a5/=22 g5/16 f5 e5 d5 c#5 d5/=14
+pat P8:
+  r/=8
+pat P16:
+  r/=16
+pat R56:
+  r/=56
+pat R64:
+  r/=64
+; rolled diminished seventh over the pedal, rolled D minor, descending cascade (32 ticks each)
+pat C1a:
+  @organ c#5/32 e5/32 g5/32 bb5/=29
+pat C1b:
+  @organ2 r/=1 e4/=31
+pat C1c:
+  @ped d2/=32
+pat C2a:
+  @organ d4/32 f4/32 a4/=30
+pat C2b:
+  @organ2 d3/=32
+pat CASa:
+  @organ d6/16 c#6 bb5 a5 g5 f5 e5 d5 c#5 bb4 a4 g4 f4 e4 d4/=4
+pat CASb:
+  @organ2 a3/=32
+pat FINa:
+  @organ d4/32 f4/32 a4/=62
+pat FINb:
+  @organ2 d3/=64
+pat FINc:
+  @ped d2/=64
+
+voice 1: T1 P8   T1-12 P16   C1a C2a CASa   T1-7 P8   C1a-5 C2a CASa   FINa
+voice 2: T1b-12 P8   T1b-24 P16   C1b C2b CASb   T1b-19 P8   C1b-5 C2b CASb   FINb
+voice 3: R56   R64   C1c C1c C1c   R56   C1c-5 C1c C1c   FINc

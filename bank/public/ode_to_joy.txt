@@ -1,0 +1,49 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Ode to Joy: theme of the last movement of Symphony No. 9 by Ludwig van Beethoven (1824, public domain).
+; Notes written from the composition; arrangement (c) 2026 IronKernel, GPL-3.0-or-later.
+title: Ode to Joy
+author: Beethoven, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 112
+tpq: 4
+meter: 4/4
+
+inst lead  wave=pulse a=0 d=8 s=10 r=4 pw=0.45 pwspeed=3 vibcents=22 vibdelay=14 vibrate=5.5
+inst bright wave=pulse a=0 d=6 s=8 r=5 pw=0.30 pwspeed=-5 vibcents=18 vibdelay=10 vibrate=6.0
+inst arp   wave=pulse a=0 d=4 s=3 r=3 pw=0.25 gate=5
+inst bass  wave=tri   a=0 d=9 s=12 r=3 gate=11
+
+; melody, bars of 4/4 (one tick = a sixteenth)
+pat m1:
+  @lead e4/4 e4 f4 g4 | g4 f4 e4 d4 | c4 c4 d4 e4 | e4/4. d4/8 d4/2 |
+pat m2:
+  e4/4 e4 f4 g4 | g4 f4 e4 d4 | c4 c4 d4 e4 | d4/4. c4/8 c4/2 |
+pat m3:
+  d4/4 d4 e4 c4 | d4 e4/8 f4 e4/4 c4 | d4 e4/8 f4 e4/4 d4 | c4 d4 g3/2 |
+
+; chord arpeggios (eighths) and bass
+pat aC:
+  @arp c4/8 e4 g4 e4 c4 e4 g4 e4 |
+pat aG:
+  b3/8 d4 g4 d4 b3 d4 g4 d4 |
+pat aCG:
+  c4/8 e4 g4 e4 b3 d4 g4 d4 |
+pat aGC:
+  b3/8 d4 g4 d4 c4 e4 g4 e4 |
+pat bC:
+  @bass c3/4 g2 c3 g2 |
+pat bG:
+  g2/4 d3 g2 d3 |
+pat bCG:
+  c3/2 g2/2 |
+pat bGC:
+  g2/2 c3/2 |
+pat bB:
+  g2/4 d3 g2 d3 | c3 g2 c3 g2 | g2 d3 g2 d3 | c3/2 g2/2 |
+pat aB:
+  b3/8 d4 g4 d4 b3 d4 g4 d4 | c4 e4 g4 e4 c4 e4 g4 e4 | b3 d4 g4 d4 b3 d4 g4 d4 | c4 e4 g4 e4 b3 d4 g4 d4 |
+
+; bars: C G C C|G, C G C G|C, bridge G C G C|G, C G C G|C; two passes
+voice 1: m1 m2 m3 m2   m1+12@bright m2+12 m3+12 m2+12
+voice 2: aC aG aC aCG aC aG aC aGC aB aC aG aC aGC   aC aG aC aCG aC aG aC aGC aB aC aG aC aGC
+voice 3: bC bG bC bCG bC bG bC bGC bB bC bG bC bGC   bC bG bC bCG bC bG bC bGC bB bC bG bC bGC

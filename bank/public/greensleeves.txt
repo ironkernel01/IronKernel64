@@ -1,0 +1,37 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Greensleeves: English traditional tune (16th century, public domain), in A minor.
+; Notes written from the tune; harmony, accompaniment and registration are the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth, a bar is 6/8 (12 ticks).
+title: Greensleeves
+author: Traditional, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 84
+tpq: 4
+meter: 6/8
+
+inst lead  wave=pulse a=1 d=8 s=10 r=5 pw=0.42 pwspeed=2 vibcents=24 vibdelay=14 vibrate=5.0
+inst flute wave=tri   a=2 d=8 s=12 r=5 vibcents=30 vibdelay=10 vibrate=5.2
+inst arp   wave=pulse a=0 d=6 s=5 r=4 pw=0.30 pwspeed=-2 gate=7
+inst bass  wave=tri   a=0 d=9 s=11 r=4 gate=9
+
+; melody: first four bars, then the two endings
+pat G1:
+  c5/4 d5/8 e5/4. | f5/4 e5/8 d5/4. | b4/4. g4/8 a4/8 b4/8 | c5/4. a4/4. |
+pat G1end1:
+  a4/4 g#4/8 a4/4. | b4/4. g#4/4. | e4/4. r/4 a4/8 |
+pat G1end2:
+  b4/4 a4/8 g#4/4 f#4/8 | g#4/4 a4/8 a4/4. | a4/4. r/4 a4/8 |
+
+; accompaniment: broken chords (Am G Em Am / E E Am) and root-fifth bass
+pat AR1:
+  @arp a3/8 c4 e4 c4 e4 c4 | g3/8 b3 d4 b3 d4 b3 | e3/8 g3 b3 g3 b3 g3 | a3/8 c4 e4 c4 e4 c4 |
+pat AR2:
+  e3/8 g#3 b3 g#3 b3 g#3 | e3/8 g#3 b3 g#3 b3 g#3 | a3/8 c4 e4 c4 e4 c4 |
+pat BS1:
+  @bass a2/4. e3/4. | g2/4. d3/4. | e2/4. b2/4. | a2/4. e3/4. |
+pat BS2:
+  e2/4. b2/4. | e2/4. b2/4. | a2/4. e3/4. |
+
+voice 1: G1@lead G1end1 G1 G1end2   G1+12@flute G1end1+12 G1+12 G1end2+12
+voice 2: AR1 AR2 AR1 AR2            AR1 AR2 AR1 AR2
+voice 3: BS1 BS2 BS1 BS2            BS1 BS2 BS1 BS2

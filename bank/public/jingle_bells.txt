@@ -1,0 +1,47 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Jingle Bells: refrain of the song by James Lord Pierpont (1857, public domain).
+; Notes written from the tune; harmony, bells and registration are the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth, a bar is 4/4 (16 ticks).
+title: Jingle Bells
+author: J. Pierpont, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 150
+tpq: 4
+meter: 4/4
+
+inst lead  wave=pulse a=0 d=7 s=10 r=4 pw=0.40 pwspeed=3 vibcents=16 vibdelay=14 vibrate=5.5
+inst bright wave=pulse a=0 d=6 s=8 r=4 pw=0.30 pwspeed=-4 vibcents=12 vibdelay=10 vibrate=6.0
+inst bell  wave=tri   a=0 d=8 s=0 r=6 gate=6
+inst chord wave=pulse a=0 d=5 s=4 r=3 pw=0.25 gate=5
+inst bass  wave=tri   a=0 d=9 s=11 r=3 gate=9
+
+; refrain, first and second time (the second time ends on the tonic)
+pat J:
+  e4/4 e4 e4/2 | e4/4 e4 e4/2 | e4/4 g4 c4/4. d4/8 | e4/1 |
+  f4/4 f4 f4/4. f4/8 | f4/4 e4 e4 e4/8 e4/8 | e4/4 d4 d4 e4 | d4/2 g4/2 |
+pat JE:
+  e4/4 e4 e4/2 | e4/4 e4 e4/2 | e4/4 g4 c4/4. d4/8 | e4/1 |
+  f4/4 f4 f4/4. f4/8 | f4/4 e4 e4 e4/8 e4/8 | g4/4 g4 f4 d4 | c4/1 |
+pat CJ:
+  @chord c4/4 e4 g4 e4 | c4 e4 g4 e4 | c4 e4 g4 e4 | c4 e4 g4 e4 |
+  f3 a3 c4 a3 | f3 a3 c4 a3 | c4 e4 g4 e4 | g3 b3 d4 b3 |
+pat CJE:
+  @chord c4/4 e4 g4 e4 | c4 e4 g4 e4 | c4 e4 g4 e4 | c4 e4 g4 e4 |
+  f3 a3 c4 a3 | f3 a3 c4 a3 | g3 b3 d4 b3 | c4 e4 g4 e4 |
+pat BJ:
+  @bass c3/4 g2 c3 g2 | c3 g2 c3 g2 | c3 g2 c3 g2 | c3 g2 c3 g2 |
+  f2 c3 f2 c3 | f2 c3 f2 c3 | c3 g2 c3 g2 | g2 d3 g2 d3 |
+pat BJE:
+  @bass c3/4 g2 c3 g2 | c3 g2 c3 g2 | c3 g2 c3 g2 | c3 g2 c3 g2 |
+  f2 c3 f2 c3 | f2 c3 f2 c3 | g2 d3 g2 d3 | c3/2 c2/2 |
+; sleigh bells: an eighth-note figure on the chord tones, third and fourth time
+pat BELL:
+  @bell e5/8 g5 e5 g5 e5 g5 e5 g5 | e5 g5 e5 g5 e5 g5 e5 g5 | e5 g5 e5 g5 e5 g5 e5 g5 | e5 g5 e5 g5 e5 g5 e5 g5 |
+  f5 a5 f5 a5 f5 a5 f5 a5 | f5 a5 f5 a5 f5 a5 f5 a5 | e5 g5 e5 g5 e5 g5 e5 g5 | d5 g5 d5 g5 d5 g5 d5 g5 |
+pat BELLE:
+  @bell e5/8 g5 e5 g5 e5 g5 e5 g5 | e5 g5 e5 g5 e5 g5 e5 g5 | e5 g5 e5 g5 e5 g5 e5 g5 | e5 g5 e5 g5 e5 g5 e5 g5 |
+  f5 a5 f5 a5 f5 a5 f5 a5 | f5 a5 f5 a5 f5 a5 f5 a5 | d5 g5 d5 g5 d5 g5 d5 g5 | c5 e5 c5 e5 c5 e5 c5 e5 |
+
+voice 1: J@lead JE J+12@bright JE+12
+voice 2: CJ CJE BELL BELLE
+voice 3: BJ BJE BJ BJE

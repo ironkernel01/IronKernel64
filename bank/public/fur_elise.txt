@@ -1,0 +1,40 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Fur Elise (Bagatelle in A minor, WoO 59) by Ludwig van Beethoven (1810, public domain).
+; Notes written from the composition: the A theme and the F major episode; the left hand and the pads are
+; the arrangement, (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth, a bar is 3/8.
+title: Fur Elise
+author: Beethoven, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 66
+tpq: 4
+meter: 3/8
+
+inst lead  wave=pulse a=0 d=7 s=9 r=4 pw=0.40 pwspeed=3 vibcents=14 vibdelay=16 vibrate=5.5 gate=0
+inst arp   wave=pulse a=0 d=5 s=4 r=3 pw=0.25 gate=6
+inst pad   wave=tri   a=2 d=9 s=11 r=6
+
+; right hand patterns follow below (a whole eight-bar statement each); left hand arpeggios and pads
+pat PADA:
+  @pad g#3/=6 | c4/=6 | g#3/=6 | c4/=6 | g#3/=6 | c4/=6 | g#3/=6 | c4/=6 |
+pat PADB:
+  @pad e3/=6 | b3/=6 | e3/=6 | g#3/=6 | c4/=6 | g#3/=6 | r/=6 |
+
+pat AtoA_v1:
+  @lead e5/16 d#5 e5 b4 d5 c5 | a4/8 r/16 c4 e4 a4 | b4/8 r/16 e4 g#4 b4 | c5/8 r/8 e5/16 d#5 |
+  e5/16 d#5 e5 b4 d5 c5 | a4/8 r/16 c4 e4 a4 | b4/8 r/16 e4 c5 b4 | a4/8 r/8 e5/16 d#5 |
+pat AtoB_v1:
+  @lead e5/16 d#5 e5 b4 d5 c5 | a4/8 r/16 c4 e4 a4 | b4/8 r/16 e4 g#4 b4 | c5/8 r/8 e5/16 d#5 |
+  e5/16 d#5 e5 b4 d5 c5 | a4/8 r/16 c4 e4 a4 | b4/8 r/16 e4 c5 b4 | a4/8 r/16 b4 c5 d5 |
+pat Bp_v1:
+  e5/8. g4/16 f5 e5 | d5/8. f4/16 e5 d5 | c5/8. e4/16 d5 c5 | b4/8 r/16 e4 e5 r |
+  e5/16 e6 d#6 e6 d#6 e6 | b5/16 d6 c6 a5/8 r/16 | r/8 r/8 e5/16 d#5 |
+pat A_lh:
+  @arp r/=6 | a2/8 e3/16 a3/16 r/8 | e2/8 e3/16 g#3/16 r/8 | a2/8 e3/16 a3/16 r/8 |
+  r/=6 | a2/8 e3/16 a3/16 r/8 | e2/8 e3/16 g#3/16 r/8 | a2/8 e3/16 a3/16 r/8 |
+pat B_lh:
+  @arp c3/8 g3/16 c4/16 r/8 | g2/8 d3/16 g3/16 r/8 | c3/8 g3/16 c4/16 r/8 | e2/8 e3/16 g#3/16 r/8 |
+  a2/8 e3/16 a3/16 r/8 | e2/8 e3/16 g#3/16 r/8 | r/=6 |
+
+voice 1: AtoA_v1 AtoB_v1 Bp_v1 AtoB_v1 Bp_v1 AtoA_v1
+voice 2: A_lh A_lh B_lh A_lh B_lh A_lh
+voice 3: PADA PADA PADB PADA PADB PADA

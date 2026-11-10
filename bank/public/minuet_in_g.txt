@@ -1,0 +1,29 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Minuet in G major (BWV Anh. 114) from the Notebook for Anna Magdalena Bach, by Christian Petzold (c. 1725,
+; public domain). The first part is written from the composition; harmony and registration are the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth, a bar is 3/4 (12 ticks).
+title: Minuet in G
+author: Petzold, arr. IronKernel
+released: 2026 IronKernel 64
+tempo: 112
+tpq: 4
+meter: 3/4
+
+inst lead  wave=pulse a=0 d=7 s=10 r=4 pw=0.45 pwspeed=3 vibcents=18 vibdelay=12 vibrate=5.5
+inst bright wave=pulse a=0 d=6 s=8 r=4 pw=0.28 pwspeed=-4 vibcents=14 vibdelay=10 vibrate=6.0
+inst flute wave=tri   a=1 d=8 s=12 r=4 vibcents=28 vibdelay=8 vibrate=5.5
+inst chord wave=pulse a=0 d=5 s=4 r=3 pw=0.25 gate=6
+inst bass  wave=tri   a=0 d=9 s=12 r=4 gate=18
+
+pat M:
+  d5/4 g4/8 a4 b4 c5 | d5/4 g4 g4 | e5/4 c5/8 d5 e5 f#5 | g5/4 g4 g4 |
+  c5/4 d5/8 c5 b4 a4 | b4/4 c5/8 b4 a4 g4 | f#4/4 g4/8 a4 b4 g4 | a4/2. |
+pat CH:
+  @chord g3/4 b3 d4 | g3 b3 d4 | c4 e4 g4 | g3 b3 d4 |
+  c4 e4 g4 | g3 b3 d4 | d4 f#4 a4 | d4 f#4 a4 |
+pat BS:
+  @bass g2/2. | g2/2. | c3/2. | g2/2. | c3/2. | g2/2. | d3/2. | d3/2. |
+
+voice 1: M@lead M@bright M+12@flute M+12@lead
+voice 2: CH CH CH CH
+voice 3: BS BS BS BS
