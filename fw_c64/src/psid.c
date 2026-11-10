@@ -70,6 +70,7 @@ _Static_assert(sizeof(g_status_text) / sizeof(g_status_text[0]) == (size_t)PSID_
 static psid_info_t g_info;
 static int g_loaded;
 static int g_inited;
+static uint16_t g_song;          /* 1-based song of the last successful psid_init */
 
 /*
  * psid_be -- big-endian field of n bytes (n = 1, 2 or 4) at image[ofs].
@@ -305,7 +306,7 @@ static psid_status_t psid_map_call(c64mem_call_t res, psid_status_t cap_status)
  * psid_init -- start one song of the loaded tune.
  * Steps:
  *   1. Require a loaded tune; song 0 selects the start song; reject songs outside
- *      1..songs and CIA-speed songs.
+ *      1..songs.
  *   2. Reset the address space, reload the C64 data, sidbus_reset with the tune's model.
  *   3. Call init with A = song - 1, capped at PSID_INIT_MAX_CYCLES (its SID writes go
  *      to sidbus_write like any call's).
@@ -327,9 +328,6 @@ psid_status_t psid_init(uint16_t song)
     if (song > g_info.songs) {
         return PSID_ERR_SONG_RANGE;
     }
-    if (psid_song_is_vbi(&g_info, song) == 0) {
-        return PSID_ERR_CIA_SPEED;
-    }
     c64mem_reset();
     if (c64mem_load(g_info.load_addr, g_info.data, g_info.data_len) != 0) {
         return PSID_ERR_PAST_END;
@@ -338,9 +336,50 @@ psid_status_t psid_init(uint16_t song)
     res = c64mem_call(g_info.init_addr, (uint8_t)(song - 1u), PSID_INIT_MAX_CYCLES);
     st = psid_map_call(res, PSID_ERR_INIT_CAP);
     if (st == PSID_OK) {
+        g_song = song;
         g_inited = 1;
     }
     return st;
+}
+
+/*
+ * psid_play_period_cycles -- PAL-clock cycles between play calls of the current song.
+ * Steps:
+ *   1. VBI song: PSID_PAL_FRAME_CYCLES, or PSID_NTSC_FRAME_CYCLES for an NTSC-only tune.
+ *   2. CIA song: CIA 1 timer A latch + 1 as the tune wrote it (c64mem), else
+ *      PSID_CIA_DEFAULT_LATCH + 1. Evaluated on every call, so a timer the tune changes
+ *      in init or play takes effect on the next period.
+ *   3. NTSC-only tune: scale by PSID_PAL_CLOCK_HZ / PSID_NTSC_CLOCK_HZ (tempo only).
+ *   4. Clamp to PSID_PERIOD_MIN_CYCLES..PSID_PERIOD_MAX_CYCLES.
+ * Returns: the period; PSID_PAL_FRAME_CYCLES before any successful psid_init.
+ */
+uint32_t psid_play_period_cycles(void)
+{
+    uint32_t period;
+    uint32_t latch;
+    const int ntsc = (g_info.clock == PSID_CLOCK_NTSC);
+
+    if (g_inited == 0) {
+        return PSID_PAL_FRAME_CYCLES;
+    }
+    if (psid_song_is_vbi(&g_info, g_song) != 0) {
+        period = ntsc ? PSID_NTSC_FRAME_CYCLES : PSID_PAL_FRAME_CYCLES;
+    } else {
+        latch = c64mem_cia1_ta_latch();
+        if (latch == 0u) {
+            latch = PSID_CIA_DEFAULT_LATCH;
+        }
+        period = latch + 1u;
+    }
+    if (ntsc) {
+        period = (uint32_t)(((uint64_t)period * PSID_PAL_CLOCK_HZ) / PSID_NTSC_CLOCK_HZ);
+    }
+    if (period < PSID_PERIOD_MIN_CYCLES) {
+        period = PSID_PERIOD_MIN_CYCLES;
+    } else if (period > PSID_PERIOD_MAX_CYCLES) {
+        period = PSID_PERIOD_MAX_CYCLES;
+    }
+    return period;
 }
 
 /*

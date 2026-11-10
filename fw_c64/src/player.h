@@ -7,12 +7,13 @@
  *   driver (psid.h) and the fabric SID (sidbus_fabric.h).
  *
  * Contract:
- *   - Timing: frame n of the song is scheduled at base0 + n * PLAYER_FRAME_CYCLES in phi2
- *     cycles of the sid_player CYCLE register, where base0 is one frame after the end of the
- *     init call. service() runs frame n when its base time is at most PLAYER_LEAD_FRAMES
- *     frames ahead of CYCLE, so the FIFO always holds about two frames of writes. When the main
- *     loop stalls for more than a frame the schedule restarts at the current CYCLE
- *     (player_resyncs() counts it).
+ *   - Timing: a play call is scheduled at the previous call's base time plus the period
+ *     psid_play_period_cycles() gave after that call (CIA timer or VBI; NTSC tunes scaled to the
+ *     PAL SID clock), in phi2 cycles of the sid_player CYCLE register; the first call is one
+ *     period after the end of the init call. service() runs a call when its base time is at most
+ *     PLAYER_LEAD_FRAMES periods ahead of CYCLE, so the FIFO always holds about two periods of
+ *     writes. When the main loop stalls for more than a period the schedule restarts at the
+ *     current CYCLE (player_resyncs() counts it).
  *   - Audio: start() selects the fabric stream as the audio FIFO source and enables the output;
  *     the SID output reaches the codec without CPU involvement.
  *   - Voice levels: ENV3 only (read back from the SID); voices 1 and 2 report 0 until the
@@ -28,7 +29,6 @@
 
 #include "basic.h"  /* basic_player_ops_t */
 
-#define PLAYER_FRAME_CYCLES  (19656u)   /* PAL: 312 lines x 63 phi2 cycles */
 #define PLAYER_LEAD_FRAMES   (2u)
 #define PLAYER_MAX_FRAMES_PER_SERVICE (PLAYER_LEAD_FRAMES + 1u)
 

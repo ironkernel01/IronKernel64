@@ -23,6 +23,9 @@
  *     $D011 bit 7 / $D012  raster line bit 8 / bits 7..0 from the cycle count:
  *                  line = ((cycle - call start) + C64MEM_CALL_START_LINE * 63)
  *                  / 63 mod 312 (PAL). Other $D011 bits read back as written.
+ *     $DC04/$DC05  CIA 1 timer A latch: writes update the low/high byte, reads return
+ *                  the latch (no down-counter). 0 = never written (c64mem_cia1_ta_latch).
+ *     $DC0E        CIA 1 CRA: stored in RAM, reads back as written.
  *     $DC0D, $DD0D  CIA interrupt control: read 0.
  *     everything else  reads/writes RAM.
  *
@@ -64,7 +67,10 @@
 #define C64MEM_SID_END          (0xD7FFu)
 #define C64MEM_VIC_CTRL1        (0xD011u)
 #define C64MEM_VIC_RASTER       (0xD012u)
+#define C64MEM_CIA1_TA_LO       (0xDC04u)
+#define C64MEM_CIA1_TA_HI       (0xDC05u)
 #define C64MEM_CIA1_ICR         (0xDC0Du)
+#define C64MEM_CIA1_CRA         (0xDC0Eu)
 #define C64MEM_CIA2_ICR         (0xDD0Du)
 
 #define C64MEM_STUB_EA31        (0xEA31u)
@@ -114,6 +120,7 @@ void c64mem_poke(uint16_t addr, uint8_t value);
 c64mem_range_t c64mem_check_range(uint32_t addr, uint32_t len);
 c64mem_call_t c64mem_call(uint16_t addr, uint8_t a_reg, uint32_t max_cycles);
 uint32_t c64mem_call_cycles(void);
+uint16_t c64mem_cia1_ta_latch(void);
 cpu6502_t *c64mem_cpu(void);
 
 #endif /* C64MEM_H */

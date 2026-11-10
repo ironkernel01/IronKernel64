@@ -55,6 +55,7 @@ static cpu6502_t g_cpu;
 static uint8_t g_sid_shadow[SIDBUS_REGS];
 static uint32_t g_call_start;
 static uint32_t g_call_cycles;
+static uint16_t g_cia1_ta_latch;   /* CIA 1 timer A latch; 0 = never written */
 
 /*
  * c64mem_raster_line -- PAL raster line at a cycle stamp of the current call.
@@ -74,7 +75,8 @@ static uint32_t c64mem_raster_line(uint32_t cycle)
  *   1. SID mirror: registers 25..28 from sidbus_read, the others from the shadow.
  *   2. $D012 / $D011: raster line from the cycle stamp.
  *   3. $DC0D / $DD0D: 0.
- *   4. Anything else: RAM.
+ *   4. $DC04 / $DC05: the timer A latch (stands in for the down-counter).
+ *   5. Anything else: RAM ($DC0E, the CIA 1 CRA, reads back as written).
  * Returns: the byte the 6502 sees.
  */
 static uint8_t c64mem_io_read(uint16_t addr, uint32_t cycle)
@@ -99,6 +101,12 @@ static uint8_t c64mem_io_read(uint16_t addr, uint32_t cycle)
     if (addr == C64MEM_CIA1_ICR || addr == C64MEM_CIA2_ICR) {
         return 0u;
     }
+    if (addr == C64MEM_CIA1_TA_LO) {
+        return (uint8_t)(g_cia1_ta_latch & 0xFFu);
+    }
+    if (addr == C64MEM_CIA1_TA_HI) {
+        return (uint8_t)(g_cia1_ta_latch >> 8);
+    }
     return g_ram[addr];
 }
 
@@ -106,7 +114,8 @@ static uint8_t c64mem_io_read(uint16_t addr, uint32_t cycle)
  * c64mem_io_write -- 6502 write in the $D000-$DFFF window.
  * Steps:
  *   1. SID mirror: update the shadow; sidbus_write(cycle - call start, reg, val).
- *   2. Anything else: RAM.
+ *   2. $DC04 / $DC05: update the low / high byte of the CIA 1 timer A latch.
+ *   3. Anything else: RAM (this stores $DC0E, the CIA 1 CRA).
  * Returns: nothing.
  */
 static void c64mem_io_write(uint16_t addr, uint8_t val, uint32_t cycle)
@@ -116,6 +125,14 @@ static void c64mem_io_write(uint16_t addr, uint8_t val, uint32_t cycle)
 
         g_sid_shadow[reg] = val;
         sidbus_write(cycle - g_call_start, reg, val);
+        return;
+    }
+    if (addr == C64MEM_CIA1_TA_LO) {
+        g_cia1_ta_latch = (uint16_t)((g_cia1_ta_latch & 0xFF00u) | val);
+        return;
+    }
+    if (addr == C64MEM_CIA1_TA_HI) {
+        g_cia1_ta_latch = (uint16_t)((g_cia1_ta_latch & 0x00FFu) | ((uint16_t)val << 8));
         return;
     }
     g_ram[addr] = val;
@@ -137,6 +154,7 @@ void c64mem_reset(void)
     memset(g_sid_shadow, 0, sizeof(g_sid_shadow));
     g_call_start = 0u;
     g_call_cycles = 0u;
+    g_cia1_ta_latch = 0u;
 
     g_ram[0x0000u] = C64MEM_PORT_DDR_RESET;
     g_ram[0x0001u] = C64MEM_PORT_DATA_RESET;
@@ -289,6 +307,15 @@ c64mem_call_t c64mem_call(uint16_t addr, uint8_t a_reg, uint32_t max_cycles)
 uint32_t c64mem_call_cycles(void)
 {
     return g_call_cycles;
+}
+
+/*
+ * c64mem_cia1_ta_latch -- CIA 1 timer A latch as the tune wrote it.
+ * Returns: the 16-bit latch; 0 when $DC04/$DC05 were never written since c64mem_reset.
+ */
+uint16_t c64mem_cia1_ta_latch(void)
+{
+    return g_cia1_ta_latch;
 }
 
 /*

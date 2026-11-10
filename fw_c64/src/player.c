@@ -67,7 +67,7 @@ static basic_player_reason_t map_load(psid_status_t st)
  * begin_song -- init one song and schedule its frames.
  * Steps:
  *   1. psid_init (resets the SID and its time, runs the init call).
- *   2. t0 = CYCLE; the first frame is due one frame after it.
+ *   2. t0 = CYCLE; the first frame is due one play period after it.
  * Returns: the psid_init status.
  */
 static psid_status_t begin_song(uint32_t song)
@@ -81,7 +81,7 @@ static psid_status_t begin_song(uint32_t song)
     }
     g_song = song;
     g_t0 = sidbus_fabric_cycle();
-    g_base = g_t0 + PLAYER_FRAME_CYCLES;
+    g_base = g_t0 + psid_play_period_cycles();
     g_playing = 1;
     return PSID_OK;
 }
@@ -155,10 +155,11 @@ static int player_select_song(uint32_t song)
 /*
  * player_service -- run the play calls that are due.
  * Steps:
- *   1. Behind by a whole frame or more: restart the schedule at CYCLE (count it).
- *   2. While the next frame's base time is at most PLAYER_LEAD_FRAMES ahead of CYCLE (signed
- *      difference), at most PLAYER_MAX_FRAMES_PER_SERVICE times: set the base, psid_play_frame,
- *      advance the base by one frame. A play failure stops the song (SID silenced).
+ *   1. Behind by a whole play period or more: restart the schedule at CYCLE (count it).
+ *   2. While the next frame's base time is at most PLAYER_LEAD_FRAMES periods ahead of CYCLE
+ *      (signed difference), at most PLAYER_MAX_FRAMES_PER_SERVICE times: set the base,
+ *      psid_play_frame, advance the base by the period as the play call left it (the tune may
+ *      have changed the CIA timer). A play failure stops the song (SID silenced).
  * Returns: nothing.
  */
 static void player_service(void)
@@ -166,14 +167,14 @@ static void player_service(void)
     if (!g_playing) {
         return;
     }
-    if ((int32_t)(sidbus_fabric_cycle() - g_base) >= (int32_t)PLAYER_FRAME_CYCLES) {
+    if ((int32_t)(sidbus_fabric_cycle() - g_base) >= (int32_t)psid_play_period_cycles()) {
         g_base = sidbus_fabric_cycle();
         g_resyncs++;
     }
     for (uint32_t i = 0u; i < PLAYER_MAX_FRAMES_PER_SERVICE; i++) {
         const int32_t ahead = (int32_t)(g_base - sidbus_fabric_cycle());
 
-        if (ahead > (int32_t)(PLAYER_LEAD_FRAMES * PLAYER_FRAME_CYCLES)) {
+        if (ahead > (int32_t)(PLAYER_LEAD_FRAMES * psid_play_period_cycles())) {
             break;
         }
         sidbus_fabric_set_base(g_base);
@@ -183,7 +184,7 @@ static void player_service(void)
             sidbus_reset(SIDBUS_MODEL_6581);
             return;
         }
-        g_base += PLAYER_FRAME_CYCLES;
+        g_base += psid_play_period_cycles();
     }
 }
 
