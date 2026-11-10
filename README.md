@@ -17,12 +17,19 @@ Revision 11-10-2026. Documents: [specification](Documentation/ironkernel64_spec.
 
 ## Quick start with the release image
 
-1. Download `ik64_qspi.mcs` (and its SHA-256) from the GitHub release.
+1. Download `ik64_qspi.mcs` and `SHA256SUMS` from the [Releases page](../../releases/latest) of this repository (the images are release assets, not files in the tree). Check the download: `sha256sum -c SHA256SUMS --ignore-missing` (Linux, Git Bash) or `Get-FileHash ik64_qspi.mcs -Algorithm SHA256` (PowerShell) against the line in `SHA256SUMS`.
 2. Write it to the Nexys Video's configuration flash: Vivado Hardware Manager, "Add Configuration Memory Device" `s25fl256sxxxxxx0-spi-x1_x2_x4`, program with erase and verify on; or, with this repository, `scripts/program_qspi.ps1 -Program ik64_qspi.mcs`.
 3. Set JP4 to "SPI Flash" and press PROG (or power-cycle). `READY.` appears on HDMI and on the UART (115200 8N1) within a few seconds.
 4. `LOAD"$",9`, `LIST`, `LOAD"CANON*",9`, `RUN`.
 
-The release image has no network share configured: device 9 works out of the box; for device 8, build core 1 with your own `fw_1541/netshare_config.h` and make your own image (below). `c64_qspi.bit` in the release loads the same design over JTAG (core 1 then loads its image from the flash).
+The release image has no network share configured: device 9 and its 9 tunes work out of the box, and `LOAD"$",8` answers `?DEVICE NOT PRESENT ERROR`. For device 8, build core 1 with your own `fw_1541/netshare_config.h` and make your own image (below). `c64_qspi.bit` in the release loads the same design over JTAG (core 1 then loads its image from the flash).
+
+| Release asset | Content |
+|---|---|
+| `ik64_qspi.mcs` | the flash image: bitstream, both firmware images, the core 1 bootloader and the tune bank |
+| `ik64_qspi.bin` | the same image as raw bytes from flash address 0 |
+| `c64_qspi.bit` | the bitstream alone, for JTAG |
+| `SHA256SUMS` | SHA-256 of the three files |
 
 ## Build and run
 
@@ -40,7 +47,18 @@ powershell -File scripts/program.ps1             # development: program over JTA
 powershell -File scripts/jtag_load.ps1 -Core 1 -Bank build/bank/public.bin   # ... and load core 1
 ```
 
-Copy `fw_1541/netshare_config.example.h` to `netshare_config.h` and fill in the share (the file is gitignored; credentials never go in the repository). Tests: `scripts/ik64_regression.ps1` (RTL), `python -I tools/public_bank_test.py`, and the `tools/*_host_test.c` programs. The network core is a closed netlist (`fpga/netlist/ik64_net_core.dcp`), so the whole bitstream builds from this tree without any network source.
+Copy `fw_1541/netshare_config.example.h` to `netshare_config.h` and fill in the share (the file is gitignored; credentials never go in the repository). Tests: `scripts/ik64_regression.ps1` (RTL, Active-HDL), `scripts/ik64_run_verilator.sh` (SID player bench under Verilator) and `scripts/ik64_host_tests.sh` (firmware host tests and the tune bank tests, MSYS2 GCC). The network core is a closed netlist (`fpga/netlist/ik64_net_core.dcp`), so the whole bitstream builds from this tree without any network source.
+
+## Working on the code with an AI agent
+
+The repository is set up for coding agents (Claude Code, Codex and others) to pick up and extend. [AGENTS.md](AGENTS.md) is the entry point (`CLAUDE.md` points to it). It has the repository map, the build and test commands with the line each one must print, the rules the scripts enforce (credentials, third-party trees, LMB budget, register header check), a table of where each kind of feature goes, and how to drive the board over the UART with `tools/uart_capture.py`, so an agent can load and play tunes without a keyboard. A typical start:
+
+```
+Read AGENTS.md and Documentation/ironkernel64_spec.md sections 4, 8 and 9, then add a DOS command <X> to device 9:
+change fw_1541/src/cbmdos.c, add checks to tools/cbmdos_host_test.c, run scripts/ik64_host_tests.sh.
+```
+
+Every script ends with one `PASS`/`FAIL` line and a documented exit code, and every test has a negative control (`+INJECT_FAILURE`), so an agent can tell from the output whether a change works.
 
 ## Commands
 

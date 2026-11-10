@@ -31,9 +31,9 @@
 1. Install the third-party trees at their fixed commits and build the bitstream and both firmware images (Vivado and Vitis 2026.1):
    `python -I tools/setup_third_party.py`, then `fpga/build_bitstream.tcl` through `scripts/ik64_vivado.ps1`, then `fw_c64/build.ps1` and `fw_1541/build.ps1`.
 2. Run the host tests and the simulation regression: `scripts/ik64_regression.ps1`, `python -I tools/public_bank_test.py`, and the `tools/*_host_test.c` programs.
-3. Program the board (`scripts/program.ps1`), load core 1 and the tune bank (`scripts/jtag_load.ps1 -Core 1 -Bank build/bank/public.bin`), open the UART at 115200 8N1 and type `LOAD"$",9`, `LIST`, `LOAD"CANON*",9`, `RUN`.
+3. Make the flash image (`scripts/make_qspi.ps1`), write it (`scripts/program_qspi.ps1 -Program build/qspi/ik64_qspi.mcs`), set JP4 to "SPI Flash" and press PROG. Open the UART at 115200 8N1 and type `LOAD"$",9`, `LIST`, `LOAD"CANON*",9`, `RUN`.
 
-Section 10 gives the details. The single QSPI image that replaces step 3 is planned and in progress (section 10.6).
+Without a build, the release image `ik64_qspi.mcs` goes straight to step 3. Section 10 gives the details; section 10.6 covers the flash image and the JTAG development flow.
 
 <div style="page-break-after: always;"></div>
 
@@ -198,7 +198,7 @@ Pin names follow the Digilent master XDC. Balls and standards are in `fpga/c64.x
 | `eth_rxck`, `eth_rxctl`, `eth_rxd` | In | 1 + 1 + 4 | `eth_rxck` | RGMII receive, bank 13, 2.5 V |
 | `eth_txck`, `eth_txctl`, `eth_txd` | Out | 1 + 1 + 4 | `clk125` | RGMII transmit |
 | `eth_mdc`, `eth_mdio`, `eth_int_b`, `eth_rst_b` | Out, InOut, In, Out | 4 | `cpu_clk` | PHY management, interrupt and reset (U7) |
-| `qspi_cs`, `qspi_dq` | InOut | 1 + 4 | `cpu_clk` | configuration flash S25FL256S on core 1's AXI Quad SPI (QSPI image work in progress); CCLK from STARTUPE2 |
+| `qspi_cs`, `qspi_dq` | InOut | 1 + 4 | `cpu_clk` | configuration flash S25FL256S on core 1's AXI Quad SPI (Spansion command table, standard SPI reads); CCLK from STARTUPE2 |
 | `ddr3_*` | InOut / Out | 16-bit data | MIG | MT41K256M16, SSTL15 |
 
 The microSD socket is not used; its pins stay unconstrained.
@@ -257,7 +257,7 @@ Clock-domain crossings: `ik64_sync` chains (ASYNC_REG, `shreg_extract="no"`) for
 | Fabric window 0 | 0 | `0x4400_0000` | 512 KiB | six 64 KiB slots, below |
 | Fabric window 1 | 1 | `0x44A0_0000` | 1 MiB | sysregs, MAC, MDIO, protocol slots |
 | Mailbox | both | `0x4500_0000` | 64 KiB | S0 on core 0, S1 on core 1 |
-| AXI Quad SPI | 1 | `0x4480_0000` | 64 KiB | configuration flash (QSPI image work in progress) |
+| AXI Quad SPI | 1 | `0x4480_0000` | 64 KiB | configuration flash: the bootloader reads the core 1 image and the bank |
 | Framebuffer | 0 | `0xC000_0000` | 256 KiB | 184,320 bytes used (2 pages) |
 | Network buffers | 1 | `0xC000_0000` | 128 KiB | DMA buffers |
 | Shared BRAM | both | `0xC100_0000` | 128 KiB | drive protocol |
@@ -450,7 +450,7 @@ Ctrl-B on the UART switches the console to the MenuBuilder command line while th
 
 ### OLED
 
-Idle: `IRONKERNEL 64`, `BASIC V2 READY`, `DRIVE 8: PRESENT` or `DRIVE 8: NOT READY`. Now playing: pages 0 and 1 show a double-height marquee of name, author, released, song n/m and time, one column per frame (the hardware scroll registers make the 512-column buffer a ring, so the loop is seamless); pages 2 and 3 show three horizontal level bars of up to 128 columns.
+Idle: `IRONKERNEL 64`, `BASIC V2 READY`, `DRIVE 8: PRESENT` or `DRIVE 8: NOT READY`. Now playing: pages 0 and 1 show a double-height marquee of name, author, released, song n/m and time, one column per frame (the hardware scroll registers make the 512-column buffer a ring, so the loop has no gap); pages 2 and 3 show three horizontal level bars of up to 128 columns.
 
 ### Software API (drivers)
 
@@ -476,47 +476,61 @@ Vivado and Vitis 2026.1 (AMD), Active-HDL 11.1 (regression of record), Verilator
 
 `fw_c64/build.ps1` generates the BSP from the XSA, checks `c64_regs.h` against `c64_pkg.sv`, generates the font and the reSID tables, embeds the Dormann images, compiles and links into the 256 KiB LMB (exit code 41 when text, data and bss exceed it). `fw_1541/build.ps1` builds core 1 for DDR3 with lwIP, libsmb2 (compiled with `-w`, deviation 5) and `libik64_netcore.a`; it stops when `net/lwipopts.h` differs from the SHA-256 the library was built with. `netshare_config.h` (server, share, base path, domain, user, password, IP mode) is gitignored; `netshare_config.example.h` is committed and the build fails with a message when the real file is missing. The credentials never go in the repository.
 
+`fw_1541/build.ps1 -Public` builds a release image into `build/fw_1541_public`: it defines `PUBLIC`, so `src/netshare.h` includes only the placeholders of `netshare_config.example.h` and never `netshare_config.h`; device 8 is then unconfigured. After the link the script searches the ELF for every string value of `netshare_config.h` and fails with exit code 42 on a hit, printing only the field name. `fw_1541/boot/build.ps1` builds the core 1 bootloader (64 KiB LMB, merged into the bitstream with core 0's image).
+
 ### 10.5 Simulation and regression
 
-`scripts/ik64_run_sim.ps1` runs Active-HDL benches; `scripts/ik64_run_verilator.sh` runs benches of plain RTL under Verilator. Every bench is self-checking with an anchored `TEST PASS: <bench>` line, and each has a `+INJECT_FAILURE` negative control that must produce `TEST FAIL`. `scripts/ik64_regression.ps1` reads `fpga/tb/regression.txt`, starts with the reset-policy scan (no asynchronous reset outside named exceptions) and prints `IK64_REGRESSION: n passed, m failed`. Host tests (section 11) build with MSYS2 GCC and carry their build line in the file header.
+`scripts/ik64_run_sim.ps1` runs Active-HDL benches; `scripts/ik64_run_verilator.sh` runs benches of plain RTL under Verilator. Every bench is self-checking with an anchored `TEST PASS: <bench>` line, and each has a `+INJECT_FAILURE` negative control that must produce `TEST FAIL`. `scripts/ik64_regression.ps1` reads `fpga/tb/regression.txt`, starts with the reset-policy scan (no asynchronous reset outside named exceptions) and prints `IK64_REGRESSION: n passed, m failed`. Host tests (section 11) build with MSYS2 GCC and carry their build line in the file header; `scripts/ik64_host_tests.sh` builds and runs all of them, the two Python bank tests and `sid_host_test` on the public tunes, and prints `IK64_HOST_TESTS: n passed, m failed`. `AGENTS.md` at the repository root lists, for each kind of change, the checks to run before a commit.
 
 ### 10.6 Programming and the QSPI image
 
-Current method: `scripts/program.ps1` loads the bitstream (core 0 merged in the LMB through the MMI) and `scripts/jtag_load.ps1 -Core 1 [-Bank build/bank/public.bin]` loads core 1's ELF into DDR3 after calibration and writes the bank before resuming the core. `scripts/load_bank.ps1` writes the bank into a running system.
+The board boots stand-alone from its 32 MiB S25FL256S configuration flash. One image holds everything:
 
-Planned, in progress: a single QSPI flash image holds the bitstream, core 0's firmware, a core 1 LMB bootloader and the DDR3 image of core 1 with the public tune bank; at power-up the FPGA configures from the flash, and the bootloader waits for DDR3 calibration, copies the image into the core 1 partition and jumps to it. It needs the AXI Quad SPI on core 1 (in the block design), the bootloader (`fw_1541/boot`), the image packer (`tools/mkqspi.py`) and a flash script. The image is not yet demonstrated on the board.
+| Flash range | Content |
+|---|---|
+| `0x0000_0000` to `0x0057_41A3` | compressed bitstream (SPI x4, 33 MHz configuration clock) with core 0's firmware and the core 1 bootloader merged into the LMBs through the MMI |
+| `0x0100_0000` to `0x0103_DFFF` | 64-byte header (`IK64QSPI`, version, sizes, load address, entry, CRC-32 of each part), core 1's firmware image, the tune bank |
+
+At power-up or PROG the FPGA configures from the flash when jumper JP4 is on "SPI Flash" (mode pins M[2:0] = 001); with JP4 on JTAG the FPGA waits for a JTAG download. Core 0 starts from its LMB. The core 1 bootloader (`fw_1541/boot`) waits for DDR3 calibration, reads the header through the AXI Quad SPI, checks every range and CRC, copies the firmware to `0x8000_0000` and the bank to `0x83F0_0000`, and jumps to the entry. A missing or bad header leaves core 1 idle after one log line, which keeps the JTAG flow below working.
+
+The AXI Quad SPI is built in quad mode, which decodes the first byte entering an empty transmit FIFO as a flash command and stalls on a byte its command table does not hold. The bootloader therefore runs one transaction per FIFO load: READ4 (`0x13`) with a 4-byte address and 11 data bytes, filled under Master Transaction Inhibit, and it checks the Command_Error bit after each one. Its start-up byte, sent with no slave selected because STARTUPE2 drops the first three clocks after configuration, is RDSR (`0x05`).
 
 | Item | Value |
 |---|---|
-| QSPI image size | [QSPI-TBD: bytes, from the packer report] |
-| Flash used | [QSPI-TBD: percent of the 32 MiB S25FL256S] |
-| Power-up to READY | [QSPI-TBD: seconds, board measurement] |
-| Boot partition layout | [QSPI-TBD: offsets, from `tools/mkqspi.py`] |
-| Utilization with the Quad SPI | [QSPI-TBD: re-read `build_info.txt` of the QSPI build] |
+| Image file | `ik64_qspi.mcs` 16,798,928 B, `ik64_qspi.bin` 17,031,168 B (`scripts/make_qspi.ps1`) |
+| Flash used | 5,718,649 B bitstream + 253,952 B data = 5,972,601 B, 17.8 % of 32 MiB |
+| PROG to `READY.` | about 4 s: configuration 3.1 s or less, core 0 start 0.7 s; core 1 serves device 9 at the same time and device 8 about 4 s later (network start) |
+| Writing the flash | 132 s erase, program and verify (`scripts/program_qspi.ps1 -Program`) |
+| Flash interface timing | out setup / hold +6.308 / +1.034 ns, in +1.809 / +8.638 ns (`qspi_sck` at 50 MHz) |
+
+`scripts/program_qspi.ps1` holds the board lock (Appendix C) and runs `scripts/ik64_qspi.tcl`: it loads Vivado's indirect-programming helper bitstream, then erases, programs and verifies; `-Reboot` configures the FPGA from the flash without a power cycle, and `-Backup` reads the flash back. Without this repository, Vivado Hardware Manager programs the same `.mcs` with configuration memory part `s25fl256sxxxxxx0-spi-x1_x2_x4`.
+
+Development flow over JTAG: `scripts/program.ps1` loads the bitstream (core 0 merged in the LMB through the MMI) and `scripts/jtag_load.ps1 -Core 1 [-Bank build/bank/public.bin]` loads core 1's ELF into DDR3 after calibration and writes the bank before resuming the core. `scripts/load_bank.ps1` writes the bank into a running system.
 
 <div style="page-break-after: always;"></div>
 
 ## 11. Verification
 
-<!-- Re-read at release: build/fpga/t3/build_info.txt (build 6fac0ad0, 11-10-2026 02:16), build/regression_int2.log (11-10-2026 02:01),
-     host test executables in build/ (run 11-10-2026), build/fw_c64/c64.elf and build/fw_1541/fw_1541.elf sizes (riscv64-unknown-elf-size). -->
+<!-- Re-read at release: build/release_hw/build_info.txt (build f0314eb3, 11-10-2026 17:13), build/fpga/reports/post_route_timing_summary.rpt,
+     build/regression_release.log (11-10-2026), host tests rebuilt and run 11-10-2026, firmware build lines of fw_c64, fw_1541 (-Public) and fw_1541/boot. -->
 
-### Build report (build 6fac0ad0, tree dirty, 11-10-2026)
+### Build report (build f0314eb3, clean tree, 11-10-2026)
 
 | Item | Value |
 |---|---|
 | Part, tool | xc7a200tsbg484-1, Vivado 2026.1 |
-| WNS / WHS / WPWS | 0.154 ns / 0.022 ns / 0.000 ns, 0 failing endpoints |
-| LUT | 38,553 (28.81 %) |
-| FF | 47,499 (17.75 %) |
+| WNS / WHS / WPWS | 0.083 ns / 0.012 ns / 0.000 ns, 0 failing endpoints |
+| LUT | 39,198 (29.30 %) |
+| FF | 48,129 (17.99 %) |
 | Block RAM | 286.5 tiles (78.49 %) |
 | DSP48E1 | 12 (1.62 %) |
 | Network RGMII (post-route) | transmit setup/hold +0.269 / +0.274 ns, receive +0.221 / +0.243 ns |
 | CDC instances in the top | FIFO 0, AXI-Lite crossing 1, Gray 2 |
-| Core 0 image | text 80,804 B, data 872 B, bss 159,000 B: 240,676 of 262,144 B of LMB (91.8 %) |
-| Core 1 image | text 229,672 B, data 1,780 B, bss 1,335,792 B (runs from DDR3) |
+| Core 0 image | text 89,686 B, data 872 B, bss 161,200 B: 251,758 of 262,144 B of LMB (96.0 %) |
+| Core 1 image | text 229,704 B, data 1,780 B, bss 1,335,792 B (release build `-Public`, runs from DDR3) |
+| Core 1 bootloader | text 1,714 B of the 64 KiB LMB |
 
-These numbers are the last completed build. The QSPI build changes the block design and the top; the main session re-reads them at release: [QSPI-TBD: utilization, WNS, WHS, LMB use of the release build].
+These numbers are the release build: the bitstream, both firmware images and the bootloader in `ik64_qspi.mcs`.
 
 ### Simulation and host tests (run 11-10-2026)
 
@@ -524,22 +538,27 @@ These numbers are the last completed build. The QSPI build changes the block des
 |---|---|---:|
 | RTL regression (`ik64_regression.ps1`) | 33 passed, 0 failed | reset-policy scan, 16 benches each with a negative control, plus RAM behavioural variants |
 | `tb_c64_video` | PASS | 23,532,763 |
-| `tb_c64_sysregs`, `tb_ps2_rx`, `tb_sid_audio_out` | PASS | 283, 112, 66,577 |
-| `tb_sid_player` (Verilator and Active-HDL) | PASS | compared with the reSID reference |
-| `bank_host_test` | PASS | 85 |
-| `cbmdos_host_test` | PASS | 104 |
+| `tb_c64_sysregs`, `tb_ps2_rx`, `tb_sid_audio_out` | PASS | 283, 112, 67,807 |
+| `tb_sid_player` (Verilator and Active-HDL) | PASS | 741, compared with the reSID reference |
+| `bank_host_test` | PASS | 61 |
+| `cbmdos_host_test` | PASS | 67 |
 | `np_switch_host_test` | PASS | 30 |
-| `public_bank_test.py` | PASS, 9 tunes, negative control fails as required | bank round trip 60 |
-| `bank_roundtrip_test.py` | PASS | 30 and 9 |
+| `public_bank_test.py` | PASS, 9 tunes, negative control fails as required | bank round trip 59 |
+| `bank_roundtrip_test.py` | PASS | 29 and 9 |
+| `cli_menu_host_test` | PASS, negative control fails as required | 194 |
+| `sid_host_test` | PASS | 9 public tunes |
 | `oled_host_test`, `psid_cia_host_test`, `sid_envmodel_host_test`, `c64screen_overlay_host_test`, `np_piano_host_test` | PASS | no count printed |
+| `ik64_host_tests.sh` (all host and bank tests above) | 12 passed, 0 failed | |
 
 Public bank: every tune plays through `psid.c`, `cpu6502.c` and `c64mem.c` with the play call returning within the cap (worst 3,266 cycles), three voices gated, the note list equal to the score for two loops, and a loop length of 45 to 90 s. The bank has 9 tunes and 15,435 bytes of the 1,048,576-byte area.
 
 ### Board results (Nexys Video)
 
 - 11-09-2026: core 0 boots (DDR3 calibrated, 512 MiB, ADAU1761 initialised, BASIC banner, `READY.`); core 1 brings up the Ethernet path (1000 Mb/s full duplex, DHCP lease, lwIP) and libsmb2 connects to the share with SMB 3.1.1 and lists the directory; `LOAD"$",8`, `LIST`, `LOAD"SID F*",8` and `RUN` play a tune with the SID clock running, the write FIFO at 25 to 50 entries with no overflow, OSC3 and ENV3 changing and 0 audio underruns.
-- 11-10-2026: the OLED works on the board (orientation corrected in `c64_top`); the device 9 bank was tested with a 26-tune private set that has since been deleted; the public bank is verified on the host and is to verify on the board.
-- To verify: listening check by ear against sidplayfp, the `cputest` result on the board, the siddump frame comparison, the HDMI picture check, the 30-minute soak.
+- 11-10-2026: the OLED works on the board (orientation corrected in `c64_top`).
+- 11-10-2026, release build f0314eb3 from the QSPI flash: the FPGA configures from the flash, core 0 reaches `READY.`, the core 1 bootloader loads the firmware and the bank with matching CRCs, core 1 gets a DHCP lease and connects to the share; `LOAD"$",9` lists the 9-tune public bank and `LOAD"INVENTION_13",9` plays; `LOAD"$",8` lists the share and tunes from it play; `@` answers `00, OK,00,00`; `VERSION` reports the build ID, all clocks locked and "HDMI hot plug: yes".
+- 11-10-2026, public release image (`-Public`, the `ik64_qspi.mcs` of the release) from the QSPI flash: core 1 shows the placeholder share and its SMB attempts time out in the background while `LOAD"$",9` lists the 9 tunes in 63 ms; `INVENTION_13` and `CANON` play for 30 s each and ESC returns to `READY.`; `LOAD"$",8` answers `?DEVICE NOT PRESENT  ERROR` at once.
+- To verify: listening check by ear against sidplayfp, the `cputest` result on the board, the siddump frame comparison, the 30-minute soak.
 
 <div style="page-break-after: always;"></div>
 
@@ -580,6 +599,9 @@ Tune switch over the UART alone: send ESC (`BREAK`, `READY.`), then `LOAD"NAME*"
 - Keyboard LEDs and keyboard commands are not supported (`ps2_rx` only receives).
 - Video is DVI-style without audio or InfoFrames.
 - The network core and library are closed; the DCP opens only in Vivado 2026.1 or newer.
+- The release image has no network share configured: device 8 needs a core 1 build with the user's own `netshare_config.h` (section 10.4).
+- Device 8 answers about 4 s after `READY.` (network start); the boot line then reads "not answering" for device 8.
+- Booting from the flash needs JP4 on "SPI Flash".
 - The board is shared with a second project; Appendix C lists the rules.
 
 <div style="page-break-after: always;"></div>

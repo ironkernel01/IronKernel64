@@ -1,7 +1,8 @@
 #!/bin/sh
 # ik64_run_verilator.sh -- builds and runs tb_sid_player under Verilator 5 (MSYS2 UCRT64).
 # Usage (from any shell): scripts/ik64_run_verilator.sh      prints the bench's TEST PASS/FAIL line.
-# Output: build/verilator/tb_sid_player. -fno-declone-ctor-dtor: see .claude/CLAUDE.md.
+# Output: build/verilator/tb_sid_player. -fno-declone-ctor-dtor: GCC 16 at -Os otherwise references a
+#   std::string move constructor that the MSYS2 libstdc++ DLL does not export (link error).
 # Revision: 11-09-2026 first version; setup guard (setup_third_party.py --check)
 #   11-10-2026: ik64_* common and bench support files replace the RTLNet ones.
 R="$(cd "$(dirname "$0")/.." && pwd)"

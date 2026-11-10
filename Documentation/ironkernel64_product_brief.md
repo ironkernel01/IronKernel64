@@ -38,7 +38,7 @@ IronKernel 64 plays SID music the way a C64 does, on an Artix-7 FPGA board. Type
 - PSID v1 to v4, vertical-blank and CIA-timer tunes, PAL and NTSC
 - UART mirrors the screen; Ctrl-B opens an engineering command line
 - Public tune bank of 9 arrangements of public-domain pieces
-- A single QSPI flash image for stand-alone boot is planned and in progress
+- Stand-alone boot from one QSPI flash image: bitstream, both firmware images and the tune bank, `READY.` about 4 s after power-up
 
 </div>
 <div>
@@ -53,8 +53,8 @@ IronKernel 64 plays SID music the way a C64 does, on an Artix-7 FPGA board. Type
 | Video | 720p60 HDMI, 384 x 240 drawn 3x |
 | Audio | ADAU1761, 16 bit, 48 kHz |
 | Input | USB keyboard (J15), USB-UART 115200 |
-| FPGA use | LUT 28.8 %, BRAM 78.5 %, DSP 1.6 % |
-| Core 0 image | 80,804 B text, 91.8 % of 256 KiB LMB |
+| FPGA use | LUT 29.3 %, BRAM 78.5 %, DSP 1.6 % |
+| Core 0 image | 89,686 B text, 96.0 % of 256 KiB LMB |
 
 </div>
 </div>
@@ -85,24 +85,26 @@ A key typed on the keyboard or the UART reaches core 0. `LOAD` becomes a request
 
 ## Verification
 
-<!-- Numbers re-read 11-10-2026: build/fpga/t3/build_info.txt (6fac0ad0), build/regression_int2.log, host test executables, public_bank_test.py. Re-read at release. -->
+<!-- Numbers re-read 11-10-2026 from the release build: build/release_hw/build_info.txt (f0314eb3), build/regression_release.log, host tests rebuilt and run, public_bank_test.py. -->
 
 | Evidence | Result |
 |---|---|
 | RTL regression (reset-policy scan, 16 benches each with a forced-failure control) | 33 passed, 0 failed |
-| Timing of the last completed build | WNS 0.154 ns, WHS 0.022 ns, 0 failing endpoints |
-| Host tests: drive bank, CBM DOS, piano, OLED, PSID CIA, envelope model, screen overlay | all PASS (bank 85, CBM DOS 104, song switch 30 checks) |
+| Timing of the release build | WNS 0.083 ns, WHS 0.012 ns, 0 failing endpoints |
+| Host tests: drive bank, CBM DOS, CLI menu, piano, OLED, PSID CIA, envelope model, screen overlay | all PASS, `scripts/ik64_host_tests.sh` 12 of 12 (bank 61, CBM DOS 67, CLI menu 194, song switch 30 checks) |
 | Public bank: 9 tunes through the real PSID loader, 6502 and memory map | all PASS; worst play call 3,266 of 20,000 cycles |
 | Board: boot, DDR3, codec, Gigabit link, SMB 3.1.1, `LOAD` and `RUN` from the share | demonstrated 11-09-2026 over the UART |
-| Board: public bank, HDMI picture, listening check, QSPI stand-alone boot | to verify; QSPI image [QSPI-TBD] |
+| Board: stand-alone boot from QSPI flash, public bank, share, `VERSION` with HDMI hot plug | demonstrated 11-10-2026 with the release image |
+| Board: public release image (no share), device 9 list and playback | demonstrated 11-10-2026 |
+| Board: listening check against sidplayfp, 30-minute soak | to verify |
 
 ## Offerings
 
 | Offering | Content |
 |---|---|
 | Source | firmware, tools and scripts under GPL-3.0-or-later; gateware under GPL-3.0-or-later or CERN-OHL-S-2.0 |
-| Network core | closed netlist and library, with an interface document; owner's licence exception to confirm |
-| Images | bitstream, both firmware images and the public tune bank; single QSPI image planned [QSPI-TBD] |
+| Network core | closed netlist and library, with an interface document; licence exception for use with IronKernel 64 (README) |
+| Images | `ik64_qspi.mcs` (one flash image, JP4 on "SPI Flash") and `c64_qspi.bit` (JTAG), with SHA-256 sums; no network share configured |
 | Services | by agreement with the owner |
 
 ### Hardware needed
