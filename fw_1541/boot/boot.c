@@ -16,8 +16,11 @@
  * Log: the text goes into the shared-BRAM log ring (common/drive_proto.h), which core 0 prints with
  *   the [1541] prefix. The ring is reset here; the firmware resets it again when it starts.
  * Bounds: every wait has an iteration limit; a stuck DDR3 or SPI engine ends in a log line and idle.
- * Start-up: after the soft reset the control register is written and read back; one dummy byte is clocked
- *   with no slave selected, since STARTUPE2 drops the first three USRCCLKO cycles after configuration.
+ * Start-up: after the soft reset the control register is written and read back; one dummy byte (RDSR,
+ *   a command the quad-mode look-up ROM accepts) is clocked with no slave selected, since STARTUPE2 drops
+ *   the first three USRCCLKO cycles after configuration.
+ * Transactions: one FIFO load (16 bytes) per chip-select assertion, filled under Master Transaction
+ *   Inhibit (see the AXI Quad SPI section); reads move 11 data bytes per READ4.
  * Build: fw_1541/boot/build.ps1 -> build/fw_1541_boot/boot.elf.
  */
 #include <stddef.h>
@@ -42,8 +45,12 @@
 #define SPICR_MANUAL_SS  (1u << 7)
 #define SPISR_RX_EMPTY   (1u << 0)
 #define SPISR_TX_FULL    (1u << 3)
+#define SPISR_CMD_ERROR  (1u << 10)     /* quad mode: first byte not in the command look-up ROM */
 #define QSPI_FIFO_DEPTH  (16u)
 #define FLASH_CMD_READ4  (0x13u)
+#define FLASH_CMD_RDSR   (0x05u)
+#define READ4_HDR_BYTES  (5u)            /* command + 4 address bytes */
+#define READ_DATA_PER_TXN (QSPI_FIFO_DEPTH - READ4_HDR_BYTES)   /* 11 data bytes per transaction */
 #define SPICR_INHIBIT    (1u << 8)
 #define SPICR_CHECK_MASK (SPICR_SPE | SPICR_MASTER | SPICR_MANUAL_SS | SPICR_INHIBIT)
 #define SRR_SETTLE_READS (16u)          /* >= 16 AXI clocks after the soft reset */
@@ -51,7 +58,6 @@
 
 #define DDR_WAIT_LOOPS   (30000000u)   /* about 10 s of AXI-Lite reads at 100 MHz */
 #define SPI_WAIT_LOOPS   (200000u)
-#define CHUNK_BYTES      (4096u)
 
 static inline uint32_t rd(uint32_t addr) { return *(volatile const uint32_t *)addr; }
 static inline void wr(uint32_t addr, uint32_t v) { *(volatile uint32_t *)addr = v; }
@@ -121,17 +127,64 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *p, uint32_t n)
     return crc;
 }
 
-/* ---- AXI Quad SPI, polled -------------------------------------------------------------------- */
-static int spi_xfer(const uint8_t *tx, uint8_t *rx, uint32_t n);
-
-static int spi_init(void)
+/* ---- AXI Quad SPI, polled ----------------------------------------------------------------------
+ * The IP is built in quad mode (C_SPI_MODE 2), which decodes the first byte the transmit FIFO receives
+ * while its control FSM is idle as a flash command (look-up ROM, PG153): an unknown byte sets
+ * SPISR Command_Error and the transfer stalls, and a refill after the FIFO ran empty is decoded again.
+ * So every chip-select assertion is ONE transaction of at most one FIFO load (16 bytes), written with
+ * the Master Transaction Inhibit bit set and started by clearing it; the FIFO never runs empty inside a
+ * transaction. Verified on the board over JTAG 11-10-2026 (READ4 at 0x1000000 returned the header). */
+static void spi_reset(void)
 {
-    const uint32_t cr = SPICR_MASTER | SPICR_SPE | SPICR_MANUAL_SS;
     uint32_t i;
     wr(QSPI_BASE + QSPI_SRR, 0x0Au);                 /* soft reset (PG153: held for 16 AXI clocks) */
     for (i = 0u; i < SRR_SETTLE_READS; i++) {        /* each AXI-Lite read takes several clocks */
         (void)rd(QSPI_BASE + QSPI_SPISR);
     }
+}
+
+/* One transaction of n (1..16) bytes: send tx[], store the n received bytes in rx[] (NULL = discard).
+ * select != 0 drives the flash chip select for the transaction. Returns 1 on success. */
+static int spi_txn(const uint8_t *tx, uint8_t *rx, uint32_t n, int select)
+{
+    const uint32_t cr = SPICR_MASTER | SPICR_SPE | SPICR_MANUAL_SS;
+    uint32_t i;
+    uint32_t got = 0u;
+    uint32_t idle = 0u;
+    int ok = 1;
+    wr(QSPI_BASE + QSPI_SPICR, cr | SPICR_INHIBIT);
+    wr(QSPI_BASE + QSPI_SPISSR, (select != 0) ? 0xFFFFFFFEu : 0xFFFFFFFFu);
+    for (i = 0u; i < n; i++) {
+        wr(QSPI_BASE + QSPI_SPIDTR, (uint32_t)tx[i]);
+    }
+    wr(QSPI_BASE + QSPI_SPICR, cr);                   /* start: the whole transaction is in the FIFO */
+    while (got < n) {
+        if ((rd(QSPI_BASE + QSPI_SPISR) & SPISR_RX_EMPTY) == 0u) {
+            const uint32_t d = rd(QSPI_BASE + QSPI_SPIDRR);
+            if (rx != NULL) {
+                rx[got] = (uint8_t)d;
+            }
+            got++;
+            idle = 0u;
+        } else if (++idle > SPI_WAIT_LOOPS) {
+            ok = 0;
+            break;
+        }
+    }
+    wr(QSPI_BASE + QSPI_SPICR, cr | SPICR_INHIBIT);
+    wr(QSPI_BASE + QSPI_SPISSR, 0xFFFFFFFFu);
+    if ((rd(QSPI_BASE + QSPI_SPISR) & SPISR_CMD_ERROR) != 0u) {
+        ok = 0;
+    }
+    return ok;
+}
+
+static int spi_init(void)
+{
+    const uint32_t cr = SPICR_MASTER | SPICR_SPE | SPICR_MANUAL_SS | SPICR_INHIBIT;
+    const uint8_t dummy = FLASH_CMD_RDSR;            /* must be a command the look-up ROM accepts */
+    uint32_t i;
+    spi_reset();
     wr(QSPI_BASE + QSPI_SPICR, cr | SPICR_TXRST | SPICR_RXRST);
     if ((rd(QSPI_BASE + QSPI_SPICR) & SPICR_CHECK_MASK) != cr) {   /* the FIFO reset bits self-clear */
         return 0;
@@ -148,69 +201,41 @@ static int spi_init(void)
     }
     /* STARTUPE2 (UG470): the first three USRCCLKO cycles after configuration switch the CCLK source
      * and never reach the pin. Clock one byte with no slave selected so the first command is whole. */
-    return spi_xfer(NULL, NULL, STARTUP_DUMMY_BYTES);
+    return spi_txn(&dummy, NULL, STARTUP_DUMMY_BYTES, 0);
 }
 
-/* Exchange n bytes: send tx[] (NULL = zeros), store rx[] (NULL = discard). Returns 1 on success. */
-static int spi_xfer(const uint8_t *tx, uint8_t *rx, uint32_t n)
-{
-    uint32_t sent = 0u;
-    uint32_t got = 0u;
-    uint32_t idle = 0u;
-    while (got < n) {
-        const uint32_t sr = rd(QSPI_BASE + QSPI_SPISR);
-        int moved = 0;
-        if ((sent < n) && ((sent - got) < (QSPI_FIFO_DEPTH - 2u)) && ((sr & SPISR_TX_FULL) == 0u)) {
-            wr(QSPI_BASE + QSPI_SPIDTR, (tx != NULL) ? (uint32_t)tx[sent] : 0u);
-            sent++;
-            moved = 1;
-        }
-        if ((sr & SPISR_RX_EMPTY) == 0u) {
-            const uint32_t d = rd(QSPI_BASE + QSPI_SPIDRR);
-            if (rx != NULL) {
-                rx[got] = (uint8_t)d;
-            }
-            got++;
-            moved = 1;
-        }
-        if (moved != 0) {
-            idle = 0u;
-        } else if (++idle > SPI_WAIT_LOOPS) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static void spi_select(int on)
-{
-    wr(QSPI_BASE + QSPI_SPISSR, (on != 0) ? 0xFFFFFFFEu : 0xFFFFFFFFu);
-}
-
-/* Read n bytes at flash offset ofs into dst; the running CRC (if given) is updated over the bytes. */
+/* Read n bytes at flash offset ofs into dst, READ_DATA_PER_TXN bytes per READ4 transaction; the
+ * running CRC (if given) is updated over the bytes. */
 static int flash_read(uint32_t ofs, uint8_t *dst, uint32_t n, uint32_t *crc)
 {
-    uint8_t cmd[5];
+    uint8_t tx[QSPI_FIFO_DEPTH];
+    uint8_t rx[QSPI_FIFO_DEPTH];
     uint32_t left = n;
-    int ok;
-    cmd[0] = FLASH_CMD_READ4;
-    cmd[1] = (uint8_t)(ofs >> 24);
-    cmd[2] = (uint8_t)(ofs >> 16);
-    cmd[3] = (uint8_t)(ofs >> 8);
-    cmd[4] = (uint8_t)ofs;
-    spi_select(1);
-    ok = spi_xfer(cmd, NULL, 5u);
-    while ((ok != 0) && (left > 0u)) {
-        const uint32_t c = (left > CHUNK_BYTES) ? CHUNK_BYTES : left;
-        ok = spi_xfer(NULL, dst, c);
-        if ((ok != 0) && (crc != NULL)) {
+    uint32_t i;
+    for (i = 0u; i < QSPI_FIFO_DEPTH; i++) {
+        tx[i] = 0u;
+    }
+    tx[0] = FLASH_CMD_READ4;
+    while (left > 0u) {
+        const uint32_t c = (left > READ_DATA_PER_TXN) ? READ_DATA_PER_TXN : left;
+        tx[1] = (uint8_t)(ofs >> 24);
+        tx[2] = (uint8_t)(ofs >> 16);
+        tx[3] = (uint8_t)(ofs >> 8);
+        tx[4] = (uint8_t)ofs;
+        if (spi_txn(tx, rx, READ4_HDR_BYTES + c, 1) == 0) {
+            return 0;
+        }
+        for (i = 0u; i < c; i++) {
+            dst[i] = rx[READ4_HDR_BYTES + i];
+        }
+        if (crc != NULL) {
             *crc = crc32_update(*crc, dst, c);
         }
         dst += c;
+        ofs += c;
         left -= c;
     }
-    spi_select(0);
-    return ok;
+    return 1;
 }
 
 static uint32_t le32(const uint8_t *p)
