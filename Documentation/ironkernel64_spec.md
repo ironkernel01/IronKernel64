@@ -603,13 +603,12 @@ IronKernel 64 stands on many open-source projects and on vendor tools. This chap
 
 Never committed: HVSC tunes, C64 ROM images, `netshare_config.h`.
 
-### 14.2 Licence exception for the closed network parts (owner to confirm)
+### 14.2 Licence exception for the closed network parts
 
-The owner grants an exception so that the GPL parts of IronKernel 64 can be combined and distributed with the closed netlist and library. The recommended wording, owner to confirm:
+The owner grants an exception so that the GPL parts of IronKernel 64 can be combined and distributed with the closed netlist and library. The owner chose this wording on 11-10-2026:
 
 > Additional permission. As a special exception, the copyright holders of IronKernel 64 give you permission to combine the IronKernel 64 firmware and gateware with the closed IronKernel network core (the netlist `fpga/netlist/ik64_net_core.dcp` and the library `fw_1541/lib/libik64_netcore.a`), and to convey the combination, provided that the closed parts are distributed unmodified and only through the interfaces documented in `fpga/netlist/ik64_net_core.md` and `fw_1541/lib/ik64_netcore.h`. The closed parts are not licensed under the GPL or the CERN-OHL-S; they may be used and redistributed only together with IronKernel 64 on a Digilent Nexys Video or a compatible board for the purpose of running IronKernel 64.
 
-The final wording is the owner's decision.
 
 ### 14.3 Credits table
 

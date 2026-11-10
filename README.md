@@ -56,7 +56,7 @@ Every item with its commit, licence and file locations is in chapter 14 of the s
 | Open ROMs | MEGA65, github.com/MEGA65/open-roms, commit ad178dbe | LGPL-3.0-or-later (font), X11 (pngprepare.c) | 8x8 character set (`fw_c64/src/font_openroms.c`) |
 | Dormann 6502 tests | Klaus Dormann, github.com/Klaus2m5/6502_65C02_functional_tests, commit 7954e2db | GPL-3.0 | `CPU TEST` |
 | AMD IP, BSP, tools | AMD, Vivado and Vitis 2026.1 | AMD licence | MicroBlaze V, DDR3, AXI blocks, BSP |
-| IronKernel network core and library | IronKernel (owner) | closed, exception below (owner to confirm) | Ethernet MAC, protocols, core 1 network drivers |
+| IronKernel network core and library | IronKernel (owner) | closed, exception below | Ethernet MAC, protocols, core 1 network drivers |
 | RTLNet | IronKernel (owner) | owner's own code | block design and script patterns (`fpga/bd/c64_bd.tcl`, `scripts/`) |
 | Digilent board files, master XDC, manual | Digilent | MIT (files); manual is reference | pins, DDR3 settings, board facts |
 | C64_MiSTer, FPGA64 | MiSTer-devel, Peter Wendrich | to verify | reference only, no file used |
@@ -77,7 +77,7 @@ Public tune bank (arrangement "IronKernel 2026, GPL-3.0-or-later"; compositions 
 - Firmware, tools and scripts: GPL-3.0-or-later (`LICENSE`).
 - FPGA gateware (`fpga/`): GPL-3.0-or-later OR CERN-OHL-S-2.0. The bitstream contains reDIP-SID, so the bitstream as a whole is distributed under CERN-OHL-S-2.0.
 - Third-party items keep their own licences (table above, notices file).
-- Closed parts: the network core netlist (`fpga/netlist/ik64_net_core.dcp`) and the library (`fw_1541/lib/libik64_netcore.a`) have no sources. Proposed exception (owner to confirm): the copyright holders permit combining the GPL parts with these closed parts and conveying the combination, provided the closed parts are distributed unmodified and used only through the documented interfaces (`fpga/netlist/ik64_net_core.md`, `fw_1541/lib/ik64_netcore.h`).
+- Closed parts: the network core netlist (`fpga/netlist/ik64_net_core.dcp`) and the library (`fw_1541/lib/libik64_netcore.a`) have no sources. Exception (owner decision 11-10-2026): the copyright holders permit combining the GPL parts with these closed parts and conveying the combination, provided the closed parts are distributed unmodified and used only through the documented interfaces (`fpga/netlist/ik64_net_core.md`, `fw_1541/lib/ik64_netcore.h`).
 - Never committed: HVSC tunes, C64 ROM images, `netshare_config.h`.
 
 ## Trademark
