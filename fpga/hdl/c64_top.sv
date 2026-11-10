@@ -51,7 +51,7 @@
 //   * LEDs: led[0] system MMCM locked, led[1] DDR3 calibrated,
 //     led[3:2] core 0 SYS_LED[1:0], led[7:4] core 1 SYS_LED[3:0].
 // Language: SystemVerilog-2012 (synthesizable).
-// Revision: 11-09-2026
+// Revision: 11-10-2026
 //   * 11-09-2026: initial version.
 //   * 11-09-2026: window 0 grows to 512 KiB; sid_player (u_sid, slot SID) and
 //     its stream into sid_audio_out; CPU_CLK_HZ from c64_pkg.
@@ -66,6 +66,9 @@
 //     netlist); RTLNet common blocks become ik64_*; the DDR3 path is ik64_axi_cdc (AMD axi_clock_converter,
 //     ID_W 2, IDs tied 0) -> ik64_ddr (MIG), the arbiter and its register slot (WIN1_ARB_OFS) are gone
 //     (one master reaches the DDR3 controller).
+//   * 11-10-2026: QSPI boot: ports qspi_cs / qspi_dq[3:0] (configuration flash) with their IOBUFs; the Quad SPI
+//     IP (core 1, axi_quad_spi_0) holds the STARTUPE2 for SCK.
+//   * 11-10-2026: hdmi_tx_hpd is active low at the ball (Q5 on the board); inverted into SYS_CLK_HDMI_HPD_BIT.
 // Clocks: sysclk (100 MHz pin) -> u_mmcm_sys; cpu_clk, clk200, ddr_sys_clk,
 //   pix_clk, pix_clk_x5, aud_clk, ui_clk as above.
 // Pins: names, balls, banks and I/O standards from the Digilent
@@ -106,9 +109,12 @@ module c64_top
   output logic [2:0] hdmi_tx_p,
   output logic [2:0] hdmi_tx_n,
 
-  // HDMI hot-plug detect: ball AB13, bank 13 (2.5 V), LVCMOS25, high while a
-  // sink is attached, asynchronous; reported in SYS_CLK_STATUS bit
-  // SYS_CLK_HDMI_HPD_BIT of both cores.
+  // HDMI hot-plug detect: ball AB13, bank 13 (2.5 V), LVCMOS25, asynchronous.
+  // Active LOW at the ball: J8 HPD drives the gate of Q5 (FDV301N), whose
+  // drain is HDMI_TX_HPD with R135 10K to VCC2V5 (schematic sheet 5), so a
+  // sink pulls the pin low. Inverted into SYS_CLK_STATUS bit
+  // SYS_CLK_HDMI_HPD_BIT of both cores (1 = sink attached). The port keeps
+  // the master-XDC name.
   input  logic       hdmi_tx_hpd,
 
   // ADAU1761 audio codec I2S, bank 34 (3.3 V), LVCMOS33; FPGA is the master:
@@ -174,6 +180,14 @@ module c64_top
   // the MDIO core inside u_net, low (PHY in reset, its safe level) until the
   // firmware releases it.
   output logic       eth_rst_b,
+
+  // Configuration QSPI flash (Spansion S25FL256S), bank 14 (3.3 V), LVCMOS33, core 1's AXI Quad
+  // SPI (u_cpu axi_quad_spi_0): qspi_cs T19 (active low), qspi_dq[0] P22 (MOSI), [1] R22 (MISO),
+  // [2] P21 (WP#), [3] R21 (HOLD#); u_qspi_*_iobuf below are the only drivers. SCK is the dedicated
+  // CCLK pin, driven by the STARTUPE2 inside the Quad SPI IP (documented exception to the
+  // I/O-primitives-in-top rule, like the MIG).
+  inout  wire        qspi_cs,
+  inout  wire  [3:0] qspi_dq,
 
   // DDR3 SDRAM MT41K256M16 (16 bit, one rank), banks 34 and 35 (1.5 V), SSTL15
   // (differential strobes and clock DIFF_SSTL15); balls and properties come
@@ -298,6 +312,8 @@ module c64_top
   logic [7:0]  irq0;
   logic [7:0]  irq1;
   logic        iic_scl_i;
+  logic [3:0]  qspi_io_i, qspi_io_o, qspi_io_t;   // axi_quad_spi_0 data lines
+  logic        qspi_ss_i, qspi_ss_o, qspi_ss_t;   // axi_quad_spi_0 chip select
   logic        iic_scl_o;
   logic        iic_scl_t;
   logic        iic_sda_i;
@@ -741,7 +757,7 @@ module c64_top
   assign clk_status_async[SYS_CLK_PIX_LOCKED_BIT] = pix_locked;
   assign clk_status_async[SYS_CLK_DDR_CALIB_BIT]  = ddr_calib;
   assign clk_status_async[SYS_CLK_AUD_LOCKED_BIT] = aud_locked;
-  assign clk_status_async[SYS_CLK_HDMI_HPD_BIT]   = hdmi_tx_hpd;
+  assign clk_status_async[SYS_CLK_HDMI_HPD_BIT]   = ~hdmi_tx_hpd;      // Q5 inverts: low = sink attached
   assign clk_status_async[SYS_CLK_ETH_LINK_BIT]   = mac_stat_link_up;   // axis_clk flag of u_net, re-synchronized here
   ik64_sync #(
     .WIDTH (CLK_STATUS_W)
@@ -771,6 +787,21 @@ module c64_top
     .iic_sda_i          (iic_sda_i),
     .iic_sda_o          (iic_sda_o),
     .iic_sda_t          (iic_sda_t),
+    .QSPI_io0_i         (qspi_io_i[0]),
+    .QSPI_io0_o         (qspi_io_o[0]),
+    .QSPI_io0_t         (qspi_io_t[0]),
+    .QSPI_io1_i         (qspi_io_i[1]),
+    .QSPI_io1_o         (qspi_io_o[1]),
+    .QSPI_io1_t         (qspi_io_t[1]),
+    .QSPI_io2_i         (qspi_io_i[2]),
+    .QSPI_io2_o         (qspi_io_o[2]),
+    .QSPI_io2_t         (qspi_io_t[2]),
+    .QSPI_io3_i         (qspi_io_i[3]),
+    .QSPI_io3_o         (qspi_io_o[3]),
+    .QSPI_io3_t         (qspi_io_t[3]),
+    .QSPI_ss_i          (qspi_ss_i),
+    .QSPI_ss_o          (qspi_ss_o),
+    .QSPI_ss_t          (qspi_ss_t),
     .irq0               (irq0),
     .irq1               (irq1),
     .FB_BRAM_addr       (fb_bram_addr),
@@ -866,6 +897,14 @@ module c64_top
   // Codec I2C pads: the only drivers of scl/sda; *_t = 1 releases the line.
   IOBUF u_scl_iobuf (.I(iic_scl_o), .T(iic_scl_t), .O(iic_scl_i), .IO(scl));
   IOBUF u_sda_iobuf (.I(iic_sda_o), .T(iic_sda_t), .O(iic_sda_i), .IO(sda));
+
+  // Configuration flash pads (core 1's axi_quad_spi_0): the only drivers of qspi_dq and qspi_cs.
+  // Chip select is driven (never released) after the IP leaves reset; qspi_ss_i is the pad level
+  // the IP never uses in master mode.
+  for (genvar q = 0; q < 4; q++) begin : g_qspi_dq
+    IOBUF u_qspi_dq_iobuf (.I(qspi_io_o[q]), .T(qspi_io_t[q]), .O(qspi_io_i[q]), .IO(qspi_dq[q]));
+  end
+  IOBUF u_qspi_cs_iobuf (.I(qspi_ss_o), .T(qspi_ss_t), .O(qspi_ss_i), .IO(qspi_cs));
 
   // ---------------------------------------------------------------------------
   // Register window 0 (core 0): SYS, AUD, VID, PS2, SID, OLED.
@@ -1125,8 +1164,12 @@ module c64_top
   );
 
   // OLED display driver (window OLED, 4 KiB used of the 64 KiB slot).
+  // The board check of 11-10-2026 showed the default orientation (0xA1 / 0xC8) upside down: the
+  // board uses 0xA0 / 0xC0 (the hardware scroll follows the panel rotation).
   c64_oled #(
-    .CPU_CLK_HZ (CPU_CLK_HZ)
+    .CPU_CLK_HZ  (CPU_CLK_HZ),
+    .SEG_REMAP   (1'b0),
+    .COM_REVERSE (1'b0)
   ) u_oled (
     .cpu_clk       (cpu_clk),
     .cpu_resetn    (cpu_resetn_sync),

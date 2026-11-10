@@ -57,18 +57,19 @@
 #       0x4120_0000  64 KiB INTC            0x41C0_0000  64 KiB Timer
 #       0x41C0_0000  64 KiB Timer           0x44A0_0000   1 MiB M_AXI_DRV
 #       0x4400_0000 512 KiB M_AXI_C64       0x4500_0000  64 KiB Mailbox S1
-#       0x4500_0000  64 KiB Mailbox S0      0x8000_0000 512 MiB DDR3 (cached)
-#       0x8000_0000 512 MiB DDR3 (cached)   0xC000_0000 128 KiB network BRAM
-#       0xC000_0000 256 KiB framebuffer     0xC100_0000 128 KiB shared BRAM
-#       0xC100_0000 128 KiB shared BRAM
+#       0x4500_0000  64 KiB Mailbox S0      0x4480_0000  64 KiB AXI Quad SPI (flash)
+#       0x8000_0000 512 MiB DDR3 (cached)   0x8000_0000 512 MiB DDR3 (cached)
+#       0xC000_0000 256 KiB framebuffer     0xC000_0000 128 KiB network BRAM
+#       0xC100_0000 128 KiB shared BRAM     0xC100_0000 128 KiB shared BRAM
 #   * Cell names are part of the build interface: the MMI written by
 #     write_mem_info names microblaze_0/microblaze_1 and lmb_bram_0/lmb_bram_1;
 #     the firmware BSP flows name the processors and find peripherals by these
 #     instance names (axi_iic_0, axi_uartlite_0, axi_intc_0, axi_timer_0,
 #     mailbox_0, axi_intc_1, axi_timer_1, axi_dma_0).
 # Language: Vivado Tcl (2026.1).
-# Revision: 11-09-2026
+# Revision: 11-10-2026
 #   * 11-09-2026: initial version.
+#   * 11-10-2026: core 1 AXI Quad SPI (axi_quad_spi_0, 0x4480_0000, axi_periph_1 M07, exported interface QSPI) for the QSPI boot.
 # Clocks: clk (cpu_clk 100 MHz) for every cell.
 # -----------------------------------------------------------------------------
 
@@ -85,6 +86,8 @@ namespace eval c64_bd {
   variable INTC_BASE      0x41200000
   variable TIMER_BASE     0x41C00000
   variable MBOX_BASE      0x45000000
+  # Core 1 only: AXI Quad SPI on the configuration flash (QSPI boot, fw_1541/boot).
+  variable QSPI_BASE      0x44800000
   # Exported fabric windows (c64_pkg.sv WIN_SIZE / WIN1_SIZE).
   variable WIN0_BASE      0x44000000
   variable WIN0_RANGE     512K
@@ -260,6 +263,8 @@ proc c64_bd_create {bd_dir} {
   # Core 0 codec control bus: iic_scl_i/_o/_t and iic_sda_i/_o/_t; the IOBUFs
   # are in c64_top.
   create_bd_intf_port -mode Master -vlnv xilinx.com:interface:iic_rtl:1.0 iic
+  # Configuration flash (core 1 boot): data lines and chip select; the clock is the IP's own STARTUPE2.
+  create_bd_intf_port -mode Master -vlnv xilinx.com:interface:spi_rtl:1.0 QSPI
   # Fabric interrupts, level, active high.
   set p_irq0 [create_bd_port -dir I -from 7 -to 0 -type intr irq0]
   set_property CONFIG.SENSITIVITY LEVEL_HIGH $p_irq0
@@ -450,9 +455,21 @@ proc c64_bd_create {bd_dir} {
   connect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXI_S2MM] [get_bd_intf_pins axi_mem/S02_AXI]
   connect_bd_intf_net [get_bd_intf_pins axi_mem/M00_AXI] [get_bd_intf_pins axi_bram_ctrl_0/S_AXI]
 
+  # QSPI flash controller (core 1 only; core 1 boots from it, fw_1541/boot). Quad mode, AXI4-Lite,
+  # no XIP, FIFOs of 16 (distributed RAM, no block RAM). The IP holds the STARTUPE2 (C_USE_STARTUP_INT)
+  # that carries SCK to the dedicated CCLK pin after configuration: a vendor-IP-internal primitive, the
+  # documented exception to "I/O primitives in c64_top" (like the MIG). SCK is ext_spi_clk / 2 = 50 MHz
+  # (the ratio is fixed to 2 with the startup block). The data and chip-select pins are IOBUFs in c64_top.
+  set qspi [create_bd_cell -type ip -vlnv xilinx.com:ip:axi_quad_spi:3.2 axi_quad_spi_0]
+  set_property -dict [list     CONFIG.C_SPI_MODE              2     CONFIG.C_SPI_MEMORY            2     CONFIG.C_TYPE_OF_AXI4_INTERFACE 0     CONFIG.C_USE_STARTUP           1     CONFIG.C_USE_STARTUP_INT       1     CONFIG.C_XIP_MODE              0] $qspi
+  connect_bd_net [get_bd_ports clk] [get_bd_pins axi_quad_spi_0/s_axi_aclk]
+  connect_bd_net [get_bd_ports clk] [get_bd_pins axi_quad_spi_0/ext_spi_clk]
+  connect_bd_net [get_bd_pins $rst1] [get_bd_pins axi_quad_spi_0/s_axi_aresetn]
+  connect_bd_intf_net [get_bd_intf_pins axi_quad_spi_0/SPI_0] [get_bd_intf_ports QSPI]
+
   # axi_periph_1: M00 timer, M01 INTC, M02 mailbox S1, M03 M_AXI_DRV,
-  # M04 DMA registers, M05 network BRAM path (axi_mem), M06 shared BRAM.
-  c64_bd_periph axi_periph_1 1 7
+  # M04 DMA registers, M05 network BRAM path (axi_mem), M06 shared BRAM, M07 QSPI flash controller.
+  c64_bd_periph axi_periph_1 1 8
   connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M00_AXI] [get_bd_intf_pins axi_timer_1/S_AXI]
   connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M01_AXI] [get_bd_intf_pins axi_intc_1/s_axi]
   connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M02_AXI] [get_bd_intf_pins mailbox_0/S1_AXI]
@@ -460,6 +477,7 @@ proc c64_bd_create {bd_dir} {
   connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M04_AXI] [get_bd_intf_pins axi_dma_0/S_AXI_LITE]
   connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M05_AXI] [get_bd_intf_pins axi_mem/S00_AXI]
   connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M06_AXI] [get_bd_intf_pins axi_bram_ctrl_shm1/S_AXI]
+  connect_bd_intf_net [get_bd_intf_pins axi_periph_1/M07_AXI] [get_bd_intf_pins axi_quad_spi_0/AXI_LITE]
 
   # Core 1 interrupts: irq1[7:0] at 0..7, timer 8, mailbox 9, DMA MM2S 10, DMA S2MM 11.
   set cat1 [create_bd_cell -type inline_hdl -vlnv xilinx.com:inline_hdl:ilconcat:1.0 irq_concat_1]
@@ -518,6 +536,7 @@ proc c64_bd_create {bd_dir} {
     [get_bd_addr_segs axi_timer_1/S_AXI/Reg] -force
   assign_bd_address -offset $::c64_bd::MBOX_BASE -range 64K -target_address_space $d1 \
     [get_bd_addr_segs mailbox_0/S1_AXI/S1_AXI_Reg] -force
+  assign_bd_address -offset $::c64_bd::QSPI_BASE -range 64K -target_address_space $d1     [get_bd_addr_segs axi_quad_spi_0/AXI_LITE/Reg] -force
   assign_bd_address -offset $::c64_bd::WIN1_BASE -range $::c64_bd::WIN1_RANGE -target_address_space $d1 \
     [get_bd_addr_segs M_AXI_DRV/Reg] -force
   assign_bd_address -offset $::c64_bd::SHM_BASE -range $::c64_bd::SHM_RANGE -target_address_space $d1 \

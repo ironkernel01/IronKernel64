@@ -32,7 +32,8 @@
 //         panel with column inversion off (0xA0) and COM scan normal (0xC0)
 //         and COM pins 0x00; this core uses the values requested by the
 //         project (0xA1, 0xC8, 0xDA 0x02, parameters SEG_REMAP and
-//         COM_REVERSE; VERIFY orientation on the board).
+//         COM_REVERSE). Board check 11-10-2026: that orientation is upside down;
+//         c64_top overrides both to 0 (0xA0 / 0xC0) at u_oled.
 //   * Registers (AXI4-Lite through ik64_axil_slave, OLED_ADDR_W = 12 address
 //     bits, a 4 KiB part of the 64 KiB window slot; offsets, bits and the
 //     geometry are c64_pkg OLED_*). Undefined offsets read 0 and ignore

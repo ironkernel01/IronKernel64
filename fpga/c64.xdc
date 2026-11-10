@@ -33,6 +33,7 @@
 #   * 11-09-2026: initial version.
 #   * 11-09-2026: Phase 4: RGMII, MDIO and eth_int_b pins, their false paths.
 #   * 11-10-2026: release split: comments name the ik64 files; no constraint changed.
+#   * 11-10-2026: QSPI flash pins (qspi_cs, qspi_dq[3:0]); their timing is fpga/constraints/ik64_qspi.xdc.
 # -----------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -205,6 +206,16 @@ set_false_path -from [get_ports {cpu_resetn uart_tx_in ps2_clk ps2_data hdmi_tx_
 set_false_path -to   [get_ports {led[*] uart_rx_out eth_rst_b eth_mdc eth_mdio scl sda ac_mclk ac_bclk ac_lrclk ac_dac_sdata oled_dc oled_res oled_sclk oled_sdin oled_vbat oled_vdd}]
 # DDR3 RESET# is a static control level set by the controller's calibration sequence, not a clocked signal.
 set_false_path -to   [get_ports {ddr3_reset_n}]
+
+# ---------------------------------------------------------------------------
+# Configuration QSPI flash (S25FL256S), bank 14 (3.3 V), core 1's AXI Quad SPI. SCK is the
+# dedicated CCLK pin (STARTUPE2 inside the IP). Pin timing: fpga/constraints/ik64_qspi.xdc.
+# ---------------------------------------------------------------------------
+set_property -dict { PACKAGE_PIN T19   IOSTANDARD LVCMOS33 } [get_ports { qspi_cs }]
+set_property -dict { PACKAGE_PIN P22   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[0] }]
+set_property -dict { PACKAGE_PIN R22   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[1] }]
+set_property -dict { PACKAGE_PIN P21   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[2] }]
+set_property -dict { PACKAGE_PIN R21   IOSTANDARD LVCMOS33 } [get_ports { qspi_dq[3] }]
 
 # ---------------------------------------------------------------------------
 # Configuration: 3.3 V configuration bank, Quad-SPI flash (x4, 33 MHz),

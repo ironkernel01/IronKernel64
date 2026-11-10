@@ -83,12 +83,15 @@
 #   * 11-09-2026: SYNTH-5 waiver for the c64_oled framebuffer (distributed RAM by design); no gate loosened.
 #   * 11-09-2026: SID on sid_clk: CDC expectation axil_cdc 2 (fifo stays 5, XPM FIFOs are not a class); setup guard (exit 14);
 #     u_sid_strm/u_fifo joins the async-reset exceptions.
+#   * 11-10-2026: QSPI boot: fpga/constraints/ik64_qspi.xdc is read after synthesis (generated SCK, flash pin timing).
 #   * 11-10-2026: release split: no RTLNet source. The network core is the closed netlist u_net
 #     (read_checkpoint before synthesis, new gate 16 if the netlist is missing or not merged); ik64_rgmii.xdc replaces RTLNet's
 #     RGMII constraints; ik64_constrain_cdc.tcl replaces the RTLNet script (expectation fifo 0,
 #     axil_cdc 1, gray 2); the DDR3 path is AMD axi_clock_converter + MIG (ik64_ddr_cc, ik64_ddr_mig), MIG
 #     paths u_ddr/u_mig/u_ik64_ddr_mig_mig; ik64_reset_sync in the reset-sync inventory. Every gate kept.
 #     One new waiver: report_cdc CDC-15 inside the AMD axi_clock_converter (scoped to its FIFO RAM and output registers).
+#   * 11-10-2026: required TIMING-18 waivers for the nine QSPI flash ports (delays given against qspi_sck on the STARTUPE2
+#     USRCCLKO pin, which the check does not relate to sys_clk); no gate loosened.
 # -----------------------------------------------------------------------------
 
 # Script-relative roots.
@@ -271,6 +274,11 @@ foreach re $mig_re_list {
 set rgmii_xdc [file join $REPO fpga constraints ik64_rgmii.xdc]
 if {![file exists $rgmii_xdc]} { nv_exit 11 "XDC not found: $rgmii_xdc" }
 if {[catch {read_xdc $rgmii_xdc} err]} { nv_exit 13 "RGMII constraints: $err" }
+
+# QSPI flash pin timing (generated SCK on the STARTUPE2 inside the Quad SPI IP).
+set qspi_xdc [file join $REPO fpga constraints ik64_qspi.xdc]
+if {![file exists $qspi_xdc]} { nv_exit 11 "XDC not found: $qspi_xdc" }
+if {[catch {read_xdc $qspi_xdc} err]} { nv_exit 13 "QSPI constraints: $err" }
 
 # Crossing constraints by cell name (counts in the header).
 set ::ik64_cdc_required {sync reset gray axil_cdc}
@@ -483,6 +491,12 @@ set meth_waivers {
            {u_sid/mem_reg u_sid/u_sid/filter/w0_T_lsl17_6581_reg u_sid/u_sid/waveform/p_t_6581_reg u_sid/u_sid/waveform/ps__6581_reg}}
   {SYNTH-5 {^The instance u_oled/g_fb\[[0-3]\]\.mem_reg_[0-9_]+ is implemented as distributed LUT RAM }
            {c64_oled framebuffer: 2 KiB requested as ram_style distributed on purpose (block RAM is at 79 % against the 80 % gate); the message only states that Vivado kept the requested mapping}}
+  {TIMING-18 {^An input delay is missing on (qspi_dq\[[0-3]\]) relative to the rising and/or falling clock edge\(s\) of sys_clk\.$}
+             {QSPI flash inputs: constrained against qspi_sck, the clock generated on the STARTUPE2 USRCCLKO pin (fpga/constraints/ik64_qspi.xdc, PG153 recipe); the check does not relate that clock to sys_clk; the paths are timed (clock interaction qspi_sck -> cpu_clk_mmcm)}
+             {{qspi_dq[0]} {qspi_dq[1]} {qspi_dq[2]} {qspi_dq[3]}}}
+  {TIMING-18 {^An output delay is missing on (qspi_cs|qspi_dq\[[0-3]\]) relative to the rising and/or falling clock edge\(s\) of sys_clk\.$}
+             {QSPI flash outputs: constrained against qspi_sck, the clock generated on the STARTUPE2 USRCCLKO pin (fpga/constraints/ik64_qspi.xdc, PG153 recipe); the check does not relate that clock to sys_clk; the paths are timed (clock interaction cpu_clk_mmcm -> qspi_sck)}
+             {qspi_cs {qspi_dq[0]} {qspi_dq[1]} {qspi_dq[2]} {qspi_dq[3]}}}
   {XDCB-5 {^The option '-to : \[get_pins -hier -include_replicated_objects -filter \{NAME =~ \*temp_mon_enabled\.u_tempmon/device_temp_sync_r1_reg\[\*\]/D\}\]' of constraint 'set_max_delay' }
           {AMD MIG IP u_ddr/u_mig: the vendor-generated temperature monitor constraint (set_max_delay to temp_mon_enabled.u_tempmon/device_temp_sync_r1_reg[*]/D) uses a hierarchical pin query; it is vendor IP constraint text}
           {match}}
