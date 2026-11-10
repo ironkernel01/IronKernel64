@@ -94,11 +94,12 @@
 #define IP_FRAG                         1
 #define IP_DEFAULT_TTL                  64
 
-/* TCP: SMB2 READ replies arrive as one stream; a 16 x MSS window keeps a
- * 100 Mbit/s LAN busy and fits the RTL CPU receive FIFO (32 KiB). The shim's
- * receive ring (IK64_SOCK_RX_BYTES) must be at least TCP_WND. */
+/* TCP: SMB2 READ replies arrive as one stream; a 10 x MSS window keeps a
+ * 100 Mbit/s LAN busy. Rule: TCP_WND + one 1518-byte frame <= the gateware's
+ * CPU_RX_FIFO_KB * 1024 (c64_top u_protocol, 16 KiB: 14,600 + 1518 = 16,118).
+ * The shim's receive ring (IK64_SOCK_RX_BYTES) must be at least TCP_WND. */
 #define TCP_MSS                         1460
-#define TCP_WND                         (16 * TCP_MSS)
+#define TCP_WND                         (10 * TCP_MSS)
 #define TCP_SND_BUF                     (8 * TCP_MSS)
 #define TCP_SND_QUEUELEN                ((4 * (TCP_SND_BUF) + (TCP_MSS - 1)) / (TCP_MSS))
 #define TCP_QUEUE_OOSEQ                 1

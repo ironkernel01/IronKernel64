@@ -60,6 +60,7 @@
 //   * 11-09-2026: sid_player on the 50 MHz sid_clk (system MMCM CLKOUT4, u_rst_sid),
 //     rtlnet_axil_cdc (u_sid_cdc) for its register slot and sid_strm_cdc for the sample
 //     stream; arbiter NARROW_MASK and WRAP_MASK 1 (RTLNet f8435ad).
+//   * 11-09-2026: u_protocol CPU_RX_FIFO_KB 32 to 16 (block RAM gate 80 %; lwipopts TCP_WND 10 x TCP_MSS).
 //   * 11-09-2026: Phase 4 network path: u_mac, u_mdio (+ IOBUF), u_protocol on core 1's window;
 //     clk125, clk125_90 and axis_clk BUFGs with their reset synchronizers; RGMII, MDIO and
 //     eth_int_b ports; the MAC, MDIO and PROTOCOL stubs are gone.
@@ -1354,7 +1355,7 @@ module c64_top
     .UDP_RX_BUF_KB   (16),
     .UDP_TX_BUF_KB   (8),
     .CPU_PATH_ENABLE (1),
-    .CPU_RX_FIFO_KB  (32),            // holds the open TCP windows of several lwIP connections
+    .CPU_RX_FIFO_KB  (16),            // ik64 runs one lwIP TCP connection (SMB): TCP_WND (10 x TCP_MSS = 14,600 B) plus a 1518-byte frame fit in 16 KiB
     .CPU_TX_FIFO_KB  (8),
     .CPU_CLASSIFIER_ENABLE (1),       // drop-all until the firmware configures it
     .CPU_TCP_OFFLOAD_ENABLE (1),      // checksum insert on transmit, trailer on receive; power-up pass-through
