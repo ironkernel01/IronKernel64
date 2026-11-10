@@ -35,10 +35,10 @@ if ($LASTEXITCODE -ne 0) {
     exit 2
 }
 
-# Files allowed to hold a two-edge sensitivity list. Empty: every synchronizer
-# and reset bridge comes from third_party/rtlnet (rtlnet_reset_sync.sv), which
-# is outside the scanned tree.
-$ResetExceptions = @()
+# Files allowed to hold a two-edge sensitivity list:
+#   ik64_reset_sync.sv -- the reset bridge: asynchronous assert, synchronous release
+#   (fpga.md section on reset synchronizers), the only async-reset flops in ik64 RTL.
+$ResetExceptions = @('ik64_reset_sync.sv')
 
 $pass = 0; $fail = 0; $failed = @()
 

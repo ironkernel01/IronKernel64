@@ -1,0 +1,200 @@
+// -----------------------------------------------------------------------------
+// SPDX-License-Identifier: GPL-3.0-or-later OR CERN-OHL-S-2.0
+// File: ik64_axi_cdc.sv
+// Purpose: AXI4 clock-domain bridge between the CPU cache port (s_clk) and the
+//   DDR3 controller (m_clk): a thin wrapper around the AMD axi_clock_converter
+//   IP ik64_ddr_cc (fpga/ip/ik64_ddr_cc.tcl).
+// Behaviors:
+//   * All five AXI4 channels cross; every field is carried unchanged (INCR and
+//     WRAP bursts, narrow beats, 1..256 beats). Clocks of any ratio and phase.
+//   * Fixed configuration 29-bit address, 128-bit data, 2-bit ID, as the MIG
+//     (parameters kept only so an instance reads like rtlnet_axi_cdc; any other
+//     value stops elaboration; MAX_BURST_BEATS is accepted and has no effect).
+//   * Resets are synchronous to their own clocks, active low; both assert from
+//     one source (the IP requires that).
+//   * AxREGION of the IP is tied 0 on the slave side and left open on the
+//     master side; the IP has no user signals here.
+//   * Port names and widths match rtlnet_axi_cdc, so c64_top changes only the
+//     instance type and ID_W (the ID is the MIG's 2 bits).
+// Language: SystemVerilog-2012.
+// Revision: 11-09-2026
+//   * 11-09-2026: initial version (prepared, not yet wired into c64_top).
+// Clocks: s_clk (slave side), m_clk (master side).
+// -----------------------------------------------------------------------------
+module ik64_axi_cdc #(
+  parameter int ADDR_W          = 29,
+  parameter int DATA_W          = 128,
+  parameter int ID_W            = 2,
+  parameter int MAX_BURST_BEATS = 16        // accepted for drop-in, unused
+)(
+  input  logic                s_clk,
+  input  logic                s_resetn,
+  input  logic [ID_W-1:0]     s_axi_awid,
+  input  logic [ADDR_W-1:0]   s_axi_awaddr,
+  input  logic [7:0]          s_axi_awlen,
+  input  logic [2:0]          s_axi_awsize,
+  input  logic [1:0]          s_axi_awburst,
+  input  logic                s_axi_awlock,
+  input  logic [3:0]          s_axi_awcache,
+  input  logic [2:0]          s_axi_awprot,
+  input  logic [3:0]          s_axi_awqos,
+  input  logic                s_axi_awvalid,
+  output logic                s_axi_awready,
+  input  logic [DATA_W-1:0]   s_axi_wdata,
+  input  logic [DATA_W/8-1:0] s_axi_wstrb,
+  input  logic                s_axi_wlast,
+  input  logic                s_axi_wvalid,
+  output logic                s_axi_wready,
+  output logic [ID_W-1:0]     s_axi_bid,
+  output logic [1:0]          s_axi_bresp,
+  output logic                s_axi_bvalid,
+  input  logic                s_axi_bready,
+  input  logic [ID_W-1:0]     s_axi_arid,
+  input  logic [ADDR_W-1:0]   s_axi_araddr,
+  input  logic [7:0]          s_axi_arlen,
+  input  logic [2:0]          s_axi_arsize,
+  input  logic [1:0]          s_axi_arburst,
+  input  logic                s_axi_arlock,
+  input  logic [3:0]          s_axi_arcache,
+  input  logic [2:0]          s_axi_arprot,
+  input  logic [3:0]          s_axi_arqos,
+  input  logic                s_axi_arvalid,
+  output logic                s_axi_arready,
+  output logic [ID_W-1:0]     s_axi_rid,
+  output logic [DATA_W-1:0]   s_axi_rdata,
+  output logic [1:0]          s_axi_rresp,
+  output logic                s_axi_rlast,
+  output logic                s_axi_rvalid,
+  input  logic                s_axi_rready,
+
+  input  logic                m_clk,
+  input  logic                m_resetn,
+  output logic [ID_W-1:0]     m_axi_awid,
+  output logic [ADDR_W-1:0]   m_axi_awaddr,
+  output logic [7:0]          m_axi_awlen,
+  output logic [2:0]          m_axi_awsize,
+  output logic [1:0]          m_axi_awburst,
+  output logic                m_axi_awlock,
+  output logic [3:0]          m_axi_awcache,
+  output logic [2:0]          m_axi_awprot,
+  output logic [3:0]          m_axi_awqos,
+  output logic                m_axi_awvalid,
+  input  logic                m_axi_awready,
+  output logic [DATA_W-1:0]   m_axi_wdata,
+  output logic [DATA_W/8-1:0] m_axi_wstrb,
+  output logic                m_axi_wlast,
+  output logic                m_axi_wvalid,
+  input  logic                m_axi_wready,
+  input  logic [ID_W-1:0]     m_axi_bid,
+  input  logic [1:0]          m_axi_bresp,
+  input  logic                m_axi_bvalid,
+  output logic                m_axi_bready,
+  output logic [ID_W-1:0]     m_axi_arid,
+  output logic [ADDR_W-1:0]   m_axi_araddr,
+  output logic [7:0]          m_axi_arlen,
+  output logic [2:0]          m_axi_arsize,
+  output logic [1:0]          m_axi_arburst,
+  output logic                m_axi_arlock,
+  output logic [3:0]          m_axi_arcache,
+  output logic [2:0]          m_axi_arprot,
+  output logic [3:0]          m_axi_arqos,
+  output logic                m_axi_arvalid,
+  input  logic                m_axi_arready,
+  input  logic [ID_W-1:0]     m_axi_rid,
+  input  logic [DATA_W-1:0]   m_axi_rdata,
+  input  logic [1:0]          m_axi_rresp,
+  input  logic                m_axi_rlast,
+  input  logic                m_axi_rvalid,
+  output logic                m_axi_rready
+);
+
+  if (ADDR_W != 29 || DATA_W != 128 || ID_W != 2) begin : g_bad_cfg
+    $fatal(1, "ik64_axi_cdc: ADDR_W=%0d DATA_W=%0d ID_W=%0d, the clock converter IP is 29/128/2", ADDR_W, DATA_W, ID_W);
+  end
+
+  ik64_ddr_cc u_cc (
+    .s_axi_aclk     (s_clk),
+    .s_axi_aresetn  (s_resetn),
+    .s_axi_awid     (s_axi_awid),
+    .s_axi_awaddr   (s_axi_awaddr),
+    .s_axi_awlen    (s_axi_awlen),
+    .s_axi_awsize   (s_axi_awsize),
+    .s_axi_awburst  (s_axi_awburst),
+    .s_axi_awlock   (s_axi_awlock),
+    .s_axi_awcache  (s_axi_awcache),
+    .s_axi_awprot   (s_axi_awprot),
+    .s_axi_awregion (4'b0000),
+    .s_axi_awqos    (s_axi_awqos),
+    .s_axi_awvalid  (s_axi_awvalid),
+    .s_axi_awready  (s_axi_awready),
+    .s_axi_wdata    (s_axi_wdata),
+    .s_axi_wstrb    (s_axi_wstrb),
+    .s_axi_wlast    (s_axi_wlast),
+    .s_axi_wvalid   (s_axi_wvalid),
+    .s_axi_wready   (s_axi_wready),
+    .s_axi_bid      (s_axi_bid),
+    .s_axi_bresp    (s_axi_bresp),
+    .s_axi_bvalid   (s_axi_bvalid),
+    .s_axi_bready   (s_axi_bready),
+    .s_axi_arid     (s_axi_arid),
+    .s_axi_araddr   (s_axi_araddr),
+    .s_axi_arlen    (s_axi_arlen),
+    .s_axi_arsize   (s_axi_arsize),
+    .s_axi_arburst  (s_axi_arburst),
+    .s_axi_arlock   (s_axi_arlock),
+    .s_axi_arcache  (s_axi_arcache),
+    .s_axi_arprot   (s_axi_arprot),
+    .s_axi_arregion (4'b0000),
+    .s_axi_arqos    (s_axi_arqos),
+    .s_axi_arvalid  (s_axi_arvalid),
+    .s_axi_arready  (s_axi_arready),
+    .s_axi_rid      (s_axi_rid),
+    .s_axi_rdata    (s_axi_rdata),
+    .s_axi_rresp    (s_axi_rresp),
+    .s_axi_rlast    (s_axi_rlast),
+    .s_axi_rvalid   (s_axi_rvalid),
+    .s_axi_rready   (s_axi_rready),
+    .m_axi_aclk     (m_clk),
+    .m_axi_aresetn  (m_resetn),
+    .m_axi_awid     (m_axi_awid),
+    .m_axi_awaddr   (m_axi_awaddr),
+    .m_axi_awlen    (m_axi_awlen),
+    .m_axi_awsize   (m_axi_awsize),
+    .m_axi_awburst  (m_axi_awburst),
+    .m_axi_awlock   (m_axi_awlock),
+    .m_axi_awcache  (m_axi_awcache),
+    .m_axi_awprot   (m_axi_awprot),
+    .m_axi_awregion (),
+    .m_axi_awqos    (m_axi_awqos),
+    .m_axi_awvalid  (m_axi_awvalid),
+    .m_axi_awready  (m_axi_awready),
+    .m_axi_wdata    (m_axi_wdata),
+    .m_axi_wstrb    (m_axi_wstrb),
+    .m_axi_wlast    (m_axi_wlast),
+    .m_axi_wvalid   (m_axi_wvalid),
+    .m_axi_wready   (m_axi_wready),
+    .m_axi_bid      (m_axi_bid),
+    .m_axi_bresp    (m_axi_bresp),
+    .m_axi_bvalid   (m_axi_bvalid),
+    .m_axi_bready   (m_axi_bready),
+    .m_axi_arid     (m_axi_arid),
+    .m_axi_araddr   (m_axi_araddr),
+    .m_axi_arlen    (m_axi_arlen),
+    .m_axi_arsize   (m_axi_arsize),
+    .m_axi_arburst  (m_axi_arburst),
+    .m_axi_arlock   (m_axi_arlock),
+    .m_axi_arcache  (m_axi_arcache),
+    .m_axi_arprot   (m_axi_arprot),
+    .m_axi_arregion (),
+    .m_axi_arqos    (m_axi_arqos),
+    .m_axi_arvalid  (m_axi_arvalid),
+    .m_axi_arready  (m_axi_arready),
+    .m_axi_rid      (m_axi_rid),
+    .m_axi_rdata    (m_axi_rdata),
+    .m_axi_rresp    (m_axi_rresp),
+    .m_axi_rlast    (m_axi_rlast),
+    .m_axi_rvalid   (m_axi_rvalid),
+    .m_axi_rready   (m_axi_rready)
+  );
+
+endmodule
