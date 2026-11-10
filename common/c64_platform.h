@@ -47,7 +47,7 @@
 #define C64_PLAT_DDR_WINDOW      (0x20000000u)  /* 512 MiB */
 
 /* DDR3 partition between the cores (firmware convention, not hardware):
- *   [0x8000_0000, +64 MiB)  core 1 code/data/heap pools (FreeRTOS, lwIP, libsmb2)
+ *   [0x8000_0000, +64 MiB)  core 1 code/data/heap pools (lwIP, libsmb2)
  *   [0x8400_0000, +64 MiB)  core 0 reserved (bring-up RAM-disk bank, register logs)
  *   rest                    free (reported as BYTES FREE on the boot screen)   */
 #define C64_PLAT_DDR_CORE1_BASE  (0x80000000u)

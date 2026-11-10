@@ -1,0 +1,11 @@
+RTLNet board-access scripts (IronKernel RTLNet, private repository, branch OV5640)
+Shared-board protocol agreed with session rtlnet-18 (c64demo.md "Board and tool coordination"):
+  rtlnet_board_lock.ps1  Enter-RtlnetBoardLock -Purpose <text> -ExpectedMinutes <n> / Exit-RtlnetBoardLock;
+                         lock %LOCALAPPDATA%\IronKernel\nexys_video.lock, session name "ik64"
+                         (RTLNET_BOARD_SESSION=ik64); a refusal prints
+                         "RTLNET_BOARD_LOCK: FAIL board is held by session ..." and exits 3.
+  rtlnet_board.ps1       take | release | show.
+  program.*, jtag_load_elf.*, merge_elf.ps1: board scripts that IronKernel 64's own program and
+                         jtag_load wrappers call.
+Pinned at the same commit as the "rtlnet" entry; a separate entry because its include list is the
+board-access scripts only.

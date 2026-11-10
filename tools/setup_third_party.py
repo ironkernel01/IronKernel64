@@ -23,6 +23,10 @@
 #   python -I tools/setup_third_party.py --check         verify installed trees, fetch nothing
 #   python -I tools/setup_third_party.py --update-hashes record digests after a version bump
 #   python -I tools/setup_third_party.py --dest DIR      install below DIR instead of third_party/
+#   python -I tools/setup_third_party.py --manifest F --notes DIR   another manifest and notes folder
+#   (tools/setup_ironkernel.py calls this module with tools/ironkernel.json and ironkernel/src/.)
+#   A manifest entry with "private": true is fetched from a private repository; when no local
+#   source works and the URL refuses the user's git credentials, one line says so.
 #
 # Exit codes: 0 all entries installed and verified, 1 digest or post-step mismatch,
 #   2 fetch or git failure, 3 usage or manifest error.
@@ -30,6 +34,7 @@
 # Revision:
 #   11-09-2026  first version
 #   11-09-2026  --check also verifies the hashes of post-step outputs
+#   11-09-2026  --manifest, --notes, --label, private-repo message (used by setup_ironkernel.py)
 
 import argparse
 import hashlib
@@ -42,6 +47,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 MANIFEST = REPO / "tools" / "third_party.json"
 NOTES_DIR = REPO / "tools" / "third_party"
+TOOL_NAME = "tools/setup_third_party.py"      # named in SOURCE.txt
+LABEL = "THIRD_PARTY"                         # prefix of the result line
+PRIVATE_MSG = ("%s is a private repository and git refused your credentials; the netlist and "
+               "library committed in this repository are prebuilt, so nothing here needs it.")
+AUTH_HINTS = ("authentication failed", "could not read username", "repository not found",
+              "permission denied", "terminal prompts disabled", "access denied", "403", "401",
+              "invalid credentials")
 CACHE_ROOT = REPO / "build" / "third_party_cache"
 DEFAULT_DEST = REPO / "third_party"
 
@@ -115,6 +127,9 @@ def fetch(entry, mirrors):
             git(["fetch", "-q", "--depth", "1", "--no-tags", src, commit], cache)
         except SetupError as exc:
             errors.append(str(exc))
+            if (src == entry["url"] and entry.get("private")
+                    and any(h in str(exc).lower() for h in AUTH_HINTS)):
+                raise SetupError(EXIT_FETCH, PRIVATE_MSG % entry["url"])
             continue
         if has_commit(cache, commit):
             print("  fetched %s from %s" % (commit[:12], src))
@@ -275,9 +290,10 @@ def source_bytes(entry):
     note = NOTES_DIR / ("%s.SOURCE.txt" % entry["name"])
     if not note.is_file():
         raise SetupError(EXIT_USAGE, "%s: missing provenance note %s" % (entry["name"], note))
-    head = ("Installed by tools/setup_third_party.py from tools/third_party.json; do not edit.\n"
+    head = ("Installed by %s from %s; do not edit.\n"
             "url: %s\ncommit: %s\nlicense: %s\ntree_sha256: %s\n\n"
-            % (entry["url"], entry["commit"], entry["license"], entry["tree_sha256"]))
+            % (TOOL_NAME, MANIFEST.relative_to(REPO).as_posix(), entry["url"], entry["commit"],
+               entry["license"], entry["tree_sha256"]))
     return (head + note.read_text(encoding="utf-8")).encode("utf-8")
 
 
@@ -351,7 +367,7 @@ def check(entry, dest_root):
     return ok
 
 
-def main(argv):
+def main(argv, dest_default=None):
     """main -- parses options and processes the selected entries.
 
     Returns: process exit code.
@@ -361,8 +377,18 @@ def main(argv):
     ap.add_argument("--check", action="store_true", help="verify installed trees only")
     ap.add_argument("--update-hashes", action="store_true", help="record tree digests")
     ap.add_argument("--mirror", action="append", default=[], help="NAME=PATH fetch source")
-    ap.add_argument("--dest", default=str(DEFAULT_DEST), help="install root")
+    ap.add_argument("--dest", default=str(dest_default or DEFAULT_DEST), help="install root")
+    ap.add_argument("--manifest", default=None, help="manifest file (default tools/third_party.json)")
+    ap.add_argument("--notes", default=None, help="provenance notes folder")
+    ap.add_argument("--label", default=None, help="prefix of the result line")
     args = ap.parse_args(argv[1:])
+    global MANIFEST, NOTES_DIR, LABEL
+    if args.manifest:
+        MANIFEST = Path(args.manifest).resolve()
+    if args.notes:
+        NOTES_DIR = Path(args.notes).resolve()
+    if args.label:
+        LABEL = args.label
     try:
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         entries = manifest["entries"]
@@ -382,9 +408,9 @@ def main(argv):
         if args.check:
             bad = [e["name"] for e in todo if not check(e, dest_root)]
             if bad:
-                print("THIRD_PARTY: FAIL (%s)" % ", ".join(bad))
+                print(LABEL + ": FAIL (%s)" % ", ".join(bad))
                 return EXIT_MISMATCH
-            print("THIRD_PARTY: PASS (%d entries)" % len(todo))
+            print(LABEL + ": PASS (%d entries)" % len(todo))
             return EXIT_OK
         changed = False
         for e in todo:
@@ -392,13 +418,13 @@ def main(argv):
         if args.update_hashes and changed:
             MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             print("tree digests written to %s" % MANIFEST.relative_to(REPO).as_posix())
-        print("THIRD_PARTY: PASS (%d entries)" % len(todo))
+        print(LABEL + ": PASS (%d entries)" % len(todo))
         return EXIT_OK
     except SetupError as exc:
-        print("THIRD_PARTY: FAIL: %s" % exc, file=sys.stderr)
+        print(LABEL + ": FAIL: %s" % exc, file=sys.stderr)
         return exc.code
     except (OSError, ValueError, KeyError) as exc:
-        print("THIRD_PARTY: FAIL: %s" % exc, file=sys.stderr)
+        print(LABEL + ": FAIL: %s" % exc, file=sys.stderr)
         return EXIT_USAGE
 
 

@@ -12,8 +12,7 @@
  *   with fw_1541/net/smb2cfg_nosys/config.h; no libsmb2 file is edited
  *   (IK64_DEVIATION 7, fw_1541/DEVIATIONS.md). ik64_sock.c includes it too.
  *
- * What is provided (exactly the calls of libsmb2's client path, NETWORK_SPIKE.md
- *   section 2): socket, fcntl (F_GETFL/F_SETFL), setsockopt, getsockopt
+ * What is provided (exactly the calls of libsmb2's client path): socket, fcntl (F_GETFL/F_SETFL), setsockopt, getsockopt
  *   (SO_ERROR), connect (non-blocking), poll, readv, writev, close,
  *   getaddrinfo/freeaddrinfo (dotted IPv4 only), plus getlogin_r, be64toh and
  *   getpid for libsmb2's platform expectations. newlib's time() runs on

@@ -8,16 +8,14 @@
  *
  * Configuration: fw_1541/netshare_config.h (gitignored, filled in by the
  *   user from netshare_config.example.h). The build stops here when it is
- *   missing or incomplete. spike_build.ps1 -CompileCheck compiles this file
- *   against the example (IK64_NETSHARE_COMPILE_CHECK) to prove the code
- *   builds; that object is never part of a firmware image.
+ *   missing or incomplete.
  */
 #include "backend_smb.h"
 
 #include "drive_log.h"     /* drive_log_printf */
 #include "drive_proto.h"   /* DRIVE_DATA_BYTES */
 
-#include "ik64_net.h"     /* ik64_net_delay_ms */
+#include "ik64_netcore.h" /* ik64_net_delay_ms */
 
 #include <stdint.h>            /* fixed-width types libsmb2's headers use */
 #include <time.h>              /* time_t: libsmb2's headers do not include it */
@@ -30,10 +28,7 @@
 #include <stdio.h>         /* snprintf */
 #include <string.h>        /* strlen, memcpy, strcmp */
 
-#if defined(IK64_NETSHARE_COMPILE_CHECK)
-/* Compile check only (spike_build.ps1 -CompileCheck): placeholder credentials. */
-#include "netshare_config.example.h"
-#elif defined(__has_include)
+#if defined(__has_include)
 #if __has_include("netshare_config.h")
 #include "netshare_config.h"
 #else

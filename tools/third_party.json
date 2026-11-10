@@ -53,16 +53,6 @@
       "tree_sha256": "6046ab4e79c49613edf12d00e3a747064347edf283d8e4fee35b3c1cefc23f12"
     },
     {
-      "name": "freertos",
-      "url": "https://github.com/FreeRTOS/FreeRTOS-Kernel.git",
-      "commit": "89592801dd8b73329a7583719b7e3567b50910e5",
-      "license": "MIT",
-      "include": [
-        ""
-      ],
-      "tree_sha256": "1d410b33efcb84ca966772cc4c377ee09fa757cef27ac627fbddb710515f284b"
-    },
-    {
       "name": "libsmb2",
       "url": "https://github.com/sahlberg/libsmb2.git",
       "commit": "a52c1571a1ff223bde5bb3df9fec7af5ce3855d4",

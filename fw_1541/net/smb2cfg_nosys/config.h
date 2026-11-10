@@ -7,7 +7,7 @@
  *   in place from third_party/libsmb2/lib for core 1 without an RTOS. Only this
  *   directory holds a config.h on libsmb2's include path.
  *
- * Difference from fw_1541/net/smb2cfg/config.h (the FreeRTOS spike):
+ * Choices:
  *   - PICO_PLATFORM is NOT defined (it would pull <lwip/sockets.h>, which does
  *     not exist with NO_SYS = 1). The BSD socket names, struct types and
  *     constants libsmb2 uses come from fw_1541/net/ik64_sock.h, which the build

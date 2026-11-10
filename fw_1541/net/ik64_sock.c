@@ -36,8 +36,7 @@
 
 #include "ik64_sock.h"
 
-#include "ik64_net.h"      /* ik64_net_service, plat_uptime_ms via rtlnet_platform.h */
-#include "rtlnet_platform.h"
+#include "ik64_netcore.h"  /* ik64_net_service, ik64_uptime_ms64 */
 
 #include <stdarg.h>        /* va_list for fcntl */
 #include <stdlib.h>        /* strtoul */
@@ -366,7 +365,7 @@ static short revents_now(short events)
  */
 int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 {
-    const uint32_t t0 = plat_uptime_ms();
+    const uint32_t t0 = (uint32_t)ik64_uptime_ms64();
     const uint32_t span = (timeout_ms < 0) ? (uint32_t)IK64_SOCK_POLL_MAX_MS : (uint32_t)timeout_ms;
     nfds_t i;
     int ready;
@@ -380,7 +379,7 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
                 ready++;
             }
         }
-        if ((ready != 0) || ((uint32_t)(plat_uptime_ms() - t0) >= span)) {
+        if ((ready != 0) || ((uint32_t)((uint32_t)ik64_uptime_ms64() - t0) >= span)) {
             return ready;
         }
     }

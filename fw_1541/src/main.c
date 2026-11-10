@@ -38,7 +38,7 @@
 #include "drive_log.h"
 #include "drive_server.h"
 #include "fatal.h"
-#include "ik64_net.h"
+#include "ik64_netcore.h"
 #include "ik64_sysregs.h"
 #include "smb_alloc.h"
 
@@ -47,11 +47,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(IK64_NETSHARE_COMPILE_CHECK)
-#include "netshare_config.example.h"
-#else
-#include "netshare_config.h"   /* NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_BASE_PATH, NETSHARE_IP_MODE only */
-#endif
+#include "netshare_config.h"   /* NETSHARE_SERVER, NETSHARE_SHARE, NETSHARE_BASE_PATH, NETSHARE_IP_MODE, NETSHARE_STATIC_* (no credentials) */
 
 #define MAIN_LINK_LOG_MS         (1000u)     /* link/lease wait log period */
 #define MAIN_LINK_FAST_MS        (30000u)    /* after this long the wait log slows down */
@@ -283,6 +279,14 @@ static void step(void)
 
 int main(void);
 
+/* Address configuration of the network library, from netshare_config.h. */
+static const ik64_net_config_t g_net_cfg = {
+    .use_dhcp       = (NETSHARE_IP_MODE == NETSHARE_IP_DHCP),
+    .static_addr    = NETSHARE_STATIC_ADDR,
+    .static_netmask = NETSHARE_STATIC_NETMASK,
+    .static_gateway = NETSHARE_STATIC_GATEWAY,
+};
+
 /*
  * main -- firmware entry, called by the BSP start-up.
  * Returns: never.
@@ -307,7 +311,7 @@ int main(void)
 
     (void)backend_smb_init();
     drive_server_init(&g_smb_ops);
-    if (ik64_net_init() != 0) {
+    if (ik64_net_init(&g_net_cfg) != 0) {
         drive_log_printf("MAIN: network bring-up incomplete, continuing (the monitor keeps retrying the link)\r\n");
     }
     enter(PHASE_LINK, (uint32_t)ik64_uptime_ms64());

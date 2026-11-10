@@ -21,7 +21,6 @@ python -I tools/setup_third_party.py --check   # verify installed trees, fetch n
 | Entry | Upstream | License |
 |---|---|---|
 | rtlnet | IronKernel RTLNet | GPL |
-| freertos | FreeRTOS-Kernel V11.3.3 | MIT |
 | libsmb2 | Ronnie Sahlberg, libsmb2 | LGPL-2.1-or-later (lib/, include/) |
 | open-roms | MEGA65 Open ROMs (character set) | LGPL-3.0-or-later |
 | resid | Dag Lem, reSID 0.16 code base | GPL-2.0-or-later |

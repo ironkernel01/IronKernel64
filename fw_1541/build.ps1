@@ -7,9 +7,11 @@ Purpose: build the IronKernel 64 core 1 ("1541" drive) firmware (MicroBlaze V
   BSD-socket shim (net/ik64_sock.c) for libsmb2, one superloop (src/main.c).
 Overview:
   1. Pre-checks: Vitis/RISC-V toolchain, lwIP in the install, third_party
-     (libsmb2, rtlnet) present, fw_1541/netshare_config.h present (the build
-     stops, naming the file, when it is missing: it holds the NAS credentials
-     and is gitignored).
+     (libsmb2) present, the network library fw_1541/lib/libik64_netcore.a and its
+     header, fw_1541/net/lwipopts.h equal to the option set the library was built
+     with (SHA-256 in fw_1541/lib/ik64_netcore.lwipopts.sha256), fw_1541/netshare_config.h
+     present (the build stops, naming the file, when it is missing: it holds the NAS
+     credentials and is gitignored).
   2. BSP: Vitis 2026.1 `vitis -s` creates a standalone platform for
      microblaze_1 under build/fw_1541/bsp, cached by the SHA-256 of the XSA
      (marker build/fw_1541/bsp.stamp; -Bsp forces a rebuild). -march/-mabi come
@@ -21,14 +23,15 @@ Overview:
      into DDR3 and started at its entry (_boot).
   4. Compile, in place (no copies into the repo):
        ours     fw_1541/src, fw_1541/net/ik64_*.c   -std=c11 -Wall -Wextra -Werror -pedantic
-       rtlnet   third_party/rtlnet drivers + firmware glue, unmodified,
-                -std=c11 -Wall -Wextra -Werror (commit in third_party/rtlnet/SOURCE.txt)
+       netcore  fw_1541/lib/libik64_netcore.a, prebuilt (drivers, CPU path, DMA netif);
+                rebuilt from ironkernel/src by ironkernel/build_fwlib.ps1
        lwip     Vitis lwip220 2.2.0 core (NO_SYS=1)  -Wall -Wextra -Werror
        libsmb2  third_party/libsmb2/lib, unmodified  -w (IK64_DEVIATION 5)
   5. Link with the BSP start-up (Xilinx.spec), --gc-sections, -Map; print the
      section totals and the kept bytes per group (from the link map).
 Exit codes (0 = success, prints FW_1541: PASS <elf> text/data/bss):
-   2  usage / environment: no Vitis, no XSA, no toolchain, third_party missing
+   2  usage / environment: no Vitis, no XSA, no toolchain, third_party or the network library missing
+   4  fw_1541/net/lwipopts.h differs from the one libik64_netcore.a was built with
    3  fw_1541/netshare_config.h missing
   20  BSP generation failed
   21  BSP compiler flags unexpected
@@ -43,13 +46,14 @@ Revision: 11-09-2026
 #>
 param(
     [string]$Xsa = '',
+    [string]$OutDir = '',
     [switch]$Bsp
 )
 $ErrorActionPreference = 'Stop'
 
 $Fw      = (Resolve-Path -LiteralPath $PSScriptRoot).Path -replace '\\', '/'
 $Repo    = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path -replace '\\', '/'
-$Out     = "$Repo/build/fw_1541"
+$Out     = if ($OutDir) { $OutDir.Replace('\', '/') } else { "$Repo/build/fw_1541" }
 $Ws      = "$Out/bsp"
 $BspDir  = "$Ws/plt/microblaze_1/dom/bsp"
 $Obj     = "$Out/obj"
@@ -97,9 +101,20 @@ $SizeExe = "$RvBin/riscv64-unknown-elf-size.exe"
 $LwipDir = "$XilinxRoot/Vitis/data/embeddedsw/ThirdParty/sw_services/lwip220_v1_4/src/lwip-2.2.0"
 $LdTmpl  = "$Fw/lscript_mb_riscv.ld.in"
 $Smb2    = "$Repo/third_party/libsmb2"
-$Rtl     = "$Repo/third_party/rtlnet"
-foreach ($p in @($Vitis, $Gcc, $SizeExe, $LdTmpl, $LwipDir, "$Smb2/lib/libsmb2.c", "$Rtl/SOURCE.txt")) {
+$NetLib  = "$Fw/lib"
+foreach ($p in @($Vitis, $Gcc, $SizeExe, $LdTmpl, $LwipDir, "$Smb2/lib/libsmb2.c")) {
     if (-not (Test-Path -LiteralPath $p)) { Stop-Build 2 "missing $p (third_party: python tools/setup_third_party.py)" }
+}
+foreach ($p in @("$NetLib/libik64_netcore.a", "$NetLib/ik64_netcore.h", "$NetLib/ik64_netcore.lwipopts.sha256")) {
+    if (-not (Test-Path -LiteralPath $p)) {
+        Stop-Build 2 "missing $p (the prebuilt network library; rebuild: python -I tools/setup_ironkernel.py, then ironkernel/build_fwlib.ps1)"
+    }
+}
+# The library was compiled against this option set (pbuf and netif layouts, checksum and zero-copy settings).
+$wantHash = ((Get-Content -LiteralPath "$NetLib/ik64_netcore.lwipopts.sha256" -TotalCount 1) -split '\s+')[0].ToLower()
+$haveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath "$Fw/net/lwipopts.h").Hash.ToLower()
+if ($haveHash -ne $wantHash) {
+    Stop-Build 4 "fw_1541/net/lwipopts.h (sha256 $haveHash) differs from the option set libik64_netcore.a was built with ($wantHash); restore lwipopts.h, or rebuild the library with ironkernel/build_fwlib.ps1 (needs ironkernel/src)"
 }
 if (-not (Test-Path -LiteralPath "$Fw/netshare_config.h")) {
     Stop-Build 3 "fw_1541/netshare_config.h is missing: copy fw_1541/netshare_config.example.h to fw_1541/netshare_config.h and fill in NETSHARE_USER and NETSHARE_PASSWORD (gitignored, never committed)"
@@ -204,10 +219,7 @@ if (Test-Path -LiteralPath $Obj) { Remove-Item -Recurse -Force -LiteralPath $Obj
 New-Item -ItemType Directory -Force -Path $Obj | Out-Null
 $sysInc  = @('-isystem', "$BspDir/include", "-specs=$BspDir/Xilinx.spec")
 $lwipInc = @('-isystem', "$LwipDir/src/include", '-isystem', "$LwipDir/contrib/ports/xilinx/include")
-$rtlDrv  = Get-ChildItem -Directory "$Rtl/cores" | ForEach-Object { "$($_.FullName -replace '\\', '/')/driver" } |
-           Where-Object { Test-Path -LiteralPath $_ }
-$rtlInc  = @($rtlDrv | ForEach-Object { "-I$_" }) + @("-I$Rtl/microblaze/firmware/src", "-I$Rtl/microblaze/firmware/src/lwip")
-$ourInc  = @("-I$Fw", "-I$Fw/src", "-I$Fw/net", "-I$Repo/common")
+$ourInc  = @("-I$Fw", "-I$Fw/src", "-I$Fw/net", "-I$NetLib", "-I$Repo/common")
 $smbInc  = @('-isystem', "$Smb2/include")
 $common  = @('-Os', '-g', '-ffunction-sections', '-fdata-sections')
 
@@ -228,17 +240,9 @@ $strict = @('-std=c11', '-Wall', '-Wextra', '-Werror')
 # ours
 $ourSrcs = @(Get-ChildItem -LiteralPath "$Fw/src" -Filter '*.c' | ForEach-Object { $_.FullName -replace '\\', '/' }) +
            @(Get-ChildItem -LiteralPath "$Fw/net" -Filter 'ik64_*.c' | ForEach-Object { $_.FullName -replace '\\', '/' })
-Compile-Group 'ik64' $ourSrcs ($strict + @('-pedantic', '-DIK64_BACKEND_SMB') + $ourInc + $rtlInc + $lwipInc + $smbInc + $sysInc)
-# RTLNet, unmodified
-$rtlSrcs = @('rtlnet_eth_mac', 'rtlnet_eth_protocol', 'rtlnet_mdio', 'rtlnet_phy_rtl8211e', 'rtlnet_dhcp',
-             'rtlnet_classifier', 'rtlnet_tcp_offload') | ForEach-Object {
-    $n = $_
-    (Get-ChildItem -Recurse -LiteralPath "$Rtl/cores" -Filter "$n.c" | Where-Object { $_.FullName -match '\\driver\\' } |
-        Select-Object -First 1).FullName -replace '\\', '/'
-}
-$rtlSrcs += @('rtlnet_cpupath.c', 'rtlnet_offload.c', 'rtlnet_fmt.c', 'lwip/rtlnet_lwip_netif.c') |
-            ForEach-Object { "$Rtl/microblaze/firmware/src/$_" }
-Compile-Group 'rtlnet' $rtlSrcs ($strict + $ourInc + $rtlInc + $lwipInc + $sysInc)
+Compile-Group 'ik64' $ourSrcs ($strict + @('-pedantic', '-DIK64_BACKEND_SMB') + $ourInc + $lwipInc + $smbInc + $sysInc)
+# Network core: the prebuilt library joins the link below; the group keeps its row in the size table.
+$groups['netcore'] = @()
 # libsmb2, unmodified
 $smbSrcs = @('aes.c', 'aes_reference.c', 'aes128ccm.c', 'alloc.c', 'asn1-ber.c', 'compat.c', 'errors.c',
     'hmac.c', 'hmac-md5.c', 'init.c', 'libsmb2.c', 'md4c.c', 'md5.c', 'ntlmssp.c', 'pdu.c', 'quic.c',
@@ -268,8 +272,8 @@ $elf = "$Out/fw_1541.elf"
 $map = "$Out/fw_1541.map"
 $allObjs = @(); foreach ($g in $groups.Keys) { $allObjs += $groups[$g] }
 $null = Invoke-Native $Gcc ($cpu + @("-specs=$BspDir/Xilinx.spec", "-T$ldFile", '-Wl,--gc-sections',
-    '-Wl,--no-warn-rwx-segments', "-Wl,-Map=$map", "-L$BspDir/lib", '-o', $elf) + $allObjs +
-    @('-Wl,--start-group', '-lxil', '-lxilstandalone', '-lgcc', '-lc', '-Wl,--end-group')) 40 'link'
+    '-Wl,--no-warn-rwx-segments', "-Wl,-Map=$map", "-L$NetLib", "-L$BspDir/lib", '-o', $elf) + $allObjs +
+    @('-Wl,--start-group', '-lik64_netcore', '-lxil', '-lxilstandalone', '-lgcc', '-lc', '-Wl,--end-group')) 40 'link'
 
 # --- 5. sizes ---
 $sizeOut = & $SizeExe $elf
@@ -293,6 +297,7 @@ foreach ($line in (Get-Content -LiteralPath $map)) {
     $file = $m.Groups[4].Value -replace '\\', '/'
     $grp = 'newlib+bsp'
     foreach ($g in $groups.Keys) { if ($file -match "/obj/${g}_") { $grp = $g; break } }
+    if ($file -match 'libik64_netcore') { $grp = 'netcore' }
     if ($sec -match '\.str[0-9]+\.[0-9]+$|^\.rodata\.str') { $grp = 'strings' }
     $kind = if ($sec -match '^\.(s?bss|tbss)') { 'bss' } elseif ($sec -match '^\.(s?data|tdata|init_array|fini_array)') { 'data' } elseif ($sec -match '^\.(text|rodata|srodata|eh_frame|init|fini)') { 'text' } else { $null }
     if ($kind) { $kept[$grp][$kind] += $sz }

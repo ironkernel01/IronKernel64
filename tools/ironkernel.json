@@ -1,0 +1,59 @@
+{
+  "comment": "Pinned IronKernel network sources for IronKernel 64 (private repository, not published). tools/setup_ironkernel.py fetches each entry at its commit into ironkernel/src/<name>/ (gitignored), checks tree_sha256 and writes SOURCE.txt from tools/ironkernel/<name>.SOURCE.txt. The public repository carries only the prebuilt netlist (fpga/netlist) and library (fw_1541/lib) made from these trees. Bump a version: change commit, run setup with --update-hashes, review the diff, update the SOURCE.txt note.",
+  "netcore_repo": {
+    "url": "OWNER TO SET",
+    "dest": "ironkernel",
+    "comment": "Private repository with the ik64_net_core wrapper, the netlist and library build scripts and the network firmware glue. tools/setup_ironkernel.py clones it into ironkernel/ when that folder is missing. OWNER TO SET: the user creates the private GitHub repository and puts its URL here; until then the local ironkernel/ repository is authoritative."
+  },
+  "entries": [
+    {
+      "name": "rtlnet",
+      "url": "https://github.com/ironkernel01/RTLnet.git",
+      "sibling": "RTLNet",
+      "commit": "f8435ad67ded7519de3df5a0ec28a18da04314b8",
+      "license": "GPL (IronKernel RTLNet)",
+      "include": [
+        "cores/rtlnet_common/",
+        "cores/rtlnet_eth_mac/",
+        "cores/rtlnet_mdio/",
+        "cores/rtlnet_eth_protocol/",
+        "cores/rtlnet_classifier/",
+        "cores/rtlnet_tcp_offload/",
+        "cores/rtlnet_arp/",
+        "cores/rtlnet_icmp/",
+        "cores/rtlnet_dhcp/",
+        "cores/rtlnet_iperf/",
+        "cores/rtlnet_udp_socket/",
+        "scripts/rtlnet_constrain_cdc.tcl",
+        "scripts/rtlnet_regression.ps1",
+        "scripts/rtlnet_run_sim.ps1",
+        "scripts/rtlnet_synth_check.tcl",
+        "scripts/rtlnet_tools.ps1",
+        "scripts/rtlnet_vivado.ps1",
+        "boards/nexys_video/constraints/",
+        "boards/nexys_video/hdl/rtlnet_nexys_video_top.sv",
+        "microblaze/firmware/src/"
+      ],
+      "tree_sha256": "ace2cfd3e927e82962a10da64b525b1ad9af7f71e37a5442814cb18dcd111129",
+      "private": true
+    },
+    {
+      "name": "rtlnet-board",
+      "url": "https://github.com/ironkernel01/RTLnet.git",
+      "sibling": "RTLNet",
+      "commit": "f8435ad67ded7519de3df5a0ec28a18da04314b8",
+      "license": "GPL (IronKernel RTLNet)",
+      "include": [
+        "scripts/rtlnet_board_lock.ps1",
+        "scripts/rtlnet_board.ps1",
+        "boards/nexys_video/scripts/program.ps1",
+        "boards/nexys_video/scripts/program.tcl",
+        "boards/nexys_video/scripts/jtag_load_elf.ps1",
+        "boards/nexys_video/scripts/jtag_load_elf.tcl",
+        "boards/nexys_video/scripts/merge_elf.ps1"
+      ],
+      "tree_sha256": "6046ab4e79c49613edf12d00e3a747064347edf283d8e4fee35b3c1cefc23f12",
+      "private": true
+    }
+  ]
+}

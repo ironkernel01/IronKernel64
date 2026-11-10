@@ -12,7 +12,7 @@
  * strdup/strndup/asprintf/stdio call.
  *
  * Sizing (rv32, GCC 13.4, -Os; sizes measured with a sizeof probe compiled
- * against third_party/libsmb2 at SOURCE.txt's commit, NETWORK_SPIKE.md):
+ * against third_party/libsmb2 at SOURCE.txt's commit):
  *   struct smb2_context        4,200 B  one per connection            -> 8 KiB class
  *   struct smb2_pdu            6,392 B  one per request in flight;     -> 8 KiB class
  *                                       a compound open+query+close

@@ -1,0 +1,8 @@
+Source: IronKernel RTLNet (private repository), branch OV5640, commit f8435ad67ded7519de3df5a0ec28a18da04314b8
+Pulled unmodified by tools/setup_ironkernel.py (git blobs, byte-exact). Do not edit; bump the pin to update.
+Commit f8435ad is the final arbiter (includes 2ca24b4, aligned-start 4 KiB fix).
+Inputs of the netlist build (ironkernel/build_netcore.ps1): cores/rtlnet_common, eth_mac, mdio,
+eth_protocol, classifier, tcp_offload, arp, icmp, dhcp, iperf, udp_socket (hdl), scripts/rtlnet_constrain_cdc.tcl,
+the Vivado slot launcher scripts, boards/nexys_video/constraints (RGMII reference).
+Inputs of the firmware library (ironkernel/build_fwlib.ps1): the driver/ folders of those cores and
+microblaze/firmware/src (cpupath, offload, fmt, lwIP netif).

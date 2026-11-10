@@ -1,0 +1,7 @@
+ik64_net_init
+ik64_net_service
+ik64_net_delay_ms
+ik64_net_status
+ik64_uptime_ms64
+sys_now
+_gettimeofday
