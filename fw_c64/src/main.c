@@ -14,7 +14,7 @@
  *   9 axi_uartlite_0            -> keyboard_uart_isr
  *   10 mailbox_0, 11 axi_iic_0  -> not connected (drive_client and the codec driver poll)
  * Init order: INTC + timer, UART/keyboard, DDR3 probe, ADAU1761, audio_out, video, c64screen,
- *   basic, drive_client; interrupts are enabled globally last.
+ *   basic, drive_client, oled; interrupts are enabled globally last.
  * Fail-stop: a failed step prints its name and status on the UART and parks the core with
  *   interrupts off.
  */
@@ -30,6 +30,8 @@
 #include "ddr_probe.h"
 #include "drive_client.h"
 #include "keyboard.h"
+#include "oled.h"
+#include "oled_ui.h"
 #include "player.h"
 #include "video.h"
 
@@ -168,6 +170,15 @@ static void platform_init(void)
 }
 
 /*
+ * drive_ready -- OLED idle screen probe: the drive answers a ping.
+ * Returns: 1 when present, else 0.
+ */
+static int drive_ready(void)
+{
+    return (drive_client_ping() == DRIVE_CLIENT_OK) ? 1 : 0;
+}
+
+/*
  * mem_info -- RAM line numbers of the boot screen.
  * Returns: nothing.
  */
@@ -248,6 +259,9 @@ int main(void)
 
     Xil_ExceptionEnable();
     basic_init(&cfg);
+    if (oled_init()) {
+        oled_ui_init(&g_player_ops, drive_ready);
+    }
 
     for (;;) {
         const uint32_t events = keyboard_poll(g_ms);
@@ -264,5 +278,6 @@ int main(void)
             cli_announced = 0;
             basic_poll();
         }
+        oled_ui_poll(basic_playing(), video_vsync_count(), g_ms);
     }
 }
