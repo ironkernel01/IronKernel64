@@ -1,0 +1,100 @@
+; SPDX-License-Identifier: GPL-3.0-or-later
+; Two-Part Invention No. 13 in A minor (BWV 784) by J. S. Bach (c. 1720, public domain). Both parts (25 bars) are
+; transcribed note for note from the Mutopia Project edition (typeset by Allen Garvin after the Bach-Gesellschaft,
+; Public Domain; https://www.mutopiaproject.org/ftp/BachJS/BWV784/bach-invention-13/). The registration and the
+; third-voice bass (the left-hand note at the first and third beat, an octave lower) are the arrangement,
+; (c) 2026 IronKernel, GPL-3.0-or-later. One tick = a sixteenth, a bar is 4/4 (16 ticks). The tie from bar 3
+; into bar 4 etc. is written with ~ . Flats stand for the sharps of the score (eb = d#, ab = g#, bb = a#).
+title: Two-Part Invention 13
+author: J. S. Bach, arr. IronKernel
+released: 1723/2026 IronKernel 64
+tempo: 76
+tpq: 4
+meter: 4/4
+
+inst rh   wave=pulse a=0 d=6 s=9 r=3 pw=0.30 pwspeed=3 gate=6
+inst lh   wave=saw   a=0 d=7 s=6 r=3 gate=6
+inst bass wave=tri   a=0 d=9 s=11 r=5 gate=20
+
+pat RH:
+  r/16 e4/16 a4/16 c5/16 b4/16 e4/16 b4/16 d5/16 c5/8 e5/8 ab4/8 e5/8 |
+  a4/16 e4/16 a4/16 c5/16 b4/16 e4/16 b4/16 d5/16 c5/8 a4/8 r/4 |
+  r/16 e5/16 c5/16 e5/16 a4/16 c5/16 e4/16 g4/16 f4/8 a4/8 d5/8 f5/8 |
+  ~/16 d5/16 b4/16 d5/16 g4/16 b4/16 d4/16 f4/16 e4/8 g4/8 c5/8 e5/8 |
+  ~/16 c5/16 a4/16 c5/16 f4/8 d5/8. b4/16 g4/16 b4/16 e4/8 c5/8 |
+  ~/16 a4/16 f4/16 a4/16 d4/8 b4/8 c5/8 r/8 r/4 |
+  r/16 g4/16 c5/16 e5/16 d5/16 g4/16 d5/16 f5/16 e5/8 g5/8 b4/8 g5/8 |
+  c5/16 g4/16 c5/16 e5/16 d5/16 g4/16 d5/16 f5/16 e5/8 c5/8 g5/8 e5/8 |
+  c6/16 a5/16 e5/16 a5/16 c5/16 e5/16 a4/16 c5/16 d5/8 f#5/8 a5/8 c6/8 |
+  b5/16 g5/16 d5/16 g5/16 b4/16 d5/16 g4/16 b4/16 c5/8 e5/8 g5/8 b5/8 |
+  a5/16 f#5/16 eb5/16 f#5/16 b4/16 eb5/16 f#4/16 a4/16 g4/8 g5/8. e5/16 c5/16 e5/16 |
+  a4/8 f#5/8. d5/16 b4/16 d5/16 g4/8 e5/8. c5/16 a4/16 c5/16 |
+  f#4/16 g5/16 f#5/16 e5/16 eb5/16 f#5/16 b4/16 eb5/16 e5/8 r/8 r/4 |
+  r/16 g5/16 bb5/16 g5/16 e5/16 g5/16 c#5/16 e5/16 g5/16 e5/16 c#5/16 e5/16 a4/16 r/16 r/8 |
+  r/16 f5/16 a5/16 f5/16 d5/16 f5/16 b4/16 d5/16 f5/16 d5/16 b4/16 d5/16 g4/16 r/16 r/8 |
+  r/16 e5/16 g5/16 e5/16 c5/16 e5/16 a4/16 c5/16 eb5/16 c5/16 a4/16 c5/16 f#4/16 r/16 r/8 |
+  r/16 d5/16 f5/16 d5/16 b4/16 d5/16 ab4/16 b4/16 d5/16 b4/16 ab4/16 b4/16 e4/16 r/16 r/8 |
+  r/16 e4/16 a4/16 c5/16 b4/16 e4/16 b4/16 d5/16 c5/8 a4/8 ab4/8 e4/8 |
+  a4/16 c5/16 e5/16 c5/16 a4/16 c5/16 f#4/16 a4/16 c5/16 a4/16 f#4/16 a4/16 eb4/16 c5/16 b4/16 a4/16 |
+  ab4/16 b4/16 d5/16 b4/16 ab4/16 b4/16 d4/16 f4/16 ab4/16 f4/16 d4/16 f4/16 b3/16 f4/16 e4/16 d4/16 |
+  c4/16 e4/16 a4/16 e4/16 c4/16 e4/16 a3/16 c4/16 eb4/16 c4/16 a3/16 c4/16 f#3/16 c4/16 b3/16 a3/16 |
+  ab3/8 b4/8 ab4/8 e4/8 r/16 e4/16 a4/16 c5/16 b4/16 e4/16 b4/16 d5/16 |
+  c5/16 a4/16 c5/16 e5/16 d5/16 b4/16 d5/16 f5/16 e5/16 c5/16 e5/16 g5/16 f5/16 e5/16 d5/16 c5/16 |
+  b4/16 c5/16 d5/16 e5/16 f5/16 d5/16 ab5/16 d5/16 b5/16 d5/16 c5/16 a5/16 f5/16 d5/16 b4/16 d5/16 |
+  ab4/16 b4/16 c5/16 a4/16 e4/16 a4/16 b4/16 ab4/16 a4/16 e4/16 c4/16 e4/16 a3/4 |
+pat LH:
+  a2/8 a3/4 ab3/8 a3/16 e3/16 a3/16 c4/16 b3/16 e3/16 b3/16 d4/16 |
+  c4/8 a3/8 ab3/8 e3/8 a3/16 e3/16 a3/16 c4/16 b3/16 e3/16 b3/16 d4/16 |
+  c4/8 a3/8 c4/8 a3/8 d4/16 a3/16 f3/16 a3/16 d3/16 f3/16 a2/16 c3/16 |
+  b2/8 d3/8 g3/8 b3/8. g3/16 e3/16 g3/16 c3/16 e3/16 g2/16 b2/16 |
+  a2/8 c3/8 d3/16 f3/16 b2/16 d3/16 g2/8 b2/8 c3/16 e3/16 a2/16 c3/16 |
+  f2/8 d2/8 g2/16 g3/16 f3/16 g3/16 c3/16 g3/16 c4/16 e4/16 d4/16 g3/16 d4/16 f4/16 |
+  e4/8 c4/8 b3/8 g3/8 c4/16 g3/16 c4/16 e4/16 d4/16 g3/16 d4/16 f4/16 |
+  e4/8 c4/8 r/4 r/16 g4/16 e4/16 g4/16 c4/16 e4/16 g3/16 b3/16 |
+  a3/8 c4/8 e4/8 g4/8 f#4/16 a4/16 d4/16 f#4/16 a3/16 d4/16 f#3/16 a3/16 |
+  g3/8 b3/8 d4/8 f#4/8 e4/16 g4/16 c4/16 e4/16 g3/16 c4/16 e3/16 g3/16 |
+  f#3/8 a3/8 b3/8 eb4/8 r/16 e4/16 c4/16 e4/16 a3/16 c4/16 e4/16 g4/16 |
+  f#4/16 d4/16 b3/16 d4/16 g3/16 b3/16 d4/16 f#4/16 e4/16 c4/16 a3/16 c4/16 f#3/16 a3/16 c4/8 |
+  ~/16 b3/16 c4/16 a3/16 b3/8 b2/8 e3/16 e4/16 b3/16 g3/16 e3/16 b2/16 g2/16 b2/16 |
+  e2/8 e3/8 g3/8 bb3/8 c#3/8 r/8 r/16 g4/16 f4/16 e4/16 |
+  d4/8 d3/8 f3/8 ab3/8 b2/8 r/8 r/16 f4/16 e4/16 d4/16 |
+  c4/8 c3/8 e3/8 f#3/8 a2/8 r/8 r/16 e4/16 eb4/16 c#4/16 |
+  b3/8 b2/8 d3/8 f3/8 ab2/8 r/8 r/16 d4/16 c4/16 b3/16 |
+  c4/8 a3/8 ab3/8 e3/8 a3/16 e3/16 a3/16 c4/16 b3/16 e3/16 b3/16 d4/16 |
+  c4/16 e4/16 a4/16 e4/16 c4/16 e4/16 a3/16 c4/16 f#3/16 a3/16 c4/16 a3/16 f#3/16 a3/16 eb3/16 f#3/16 |
+  e3/8 ab3/8 b3/8 ab3/8 e3/8 b2/8 ab2/8 e2/8 |
+  a2/8 c3/8 e3/8 c3/8 a2/8 c3/8 eb2/8 r/8 |
+  r/16 b3/16 ab3/16 e3/16 d3/16 b3/16 ab3/16 d3/16 c3/8 e3/8 ab2/8 e3/8 |
+  a2/8 f#3/8 b2/8 ab3/8 c3/8 a3/8 d3/8 bb3/8 |
+  ab3/8 f3/8 d3/8 b2/8 ab2/8 a2/8 d2/8 e2/8 |
+  f2/8 eb2/8 e2/8 e3/8 a2/2 |
+pat BS:
+  a1/2 a2/2 |
+  c3/2 a2/2 |
+  c3/2 d3/2 |
+  b1/2 b2/2 |
+  a1/2 g1/2 |
+  f1/2 c2/2 |
+  e3/2 c3/2 |
+  e3/2 r/2 |
+  a2/2 f#3/2 |
+  g2/2 e3/2 |
+  f#2/2 r/2 |
+  f#3/2 e3/2 |
+  c3/2 e2/2 |
+  e1/2 c#2/2 |
+  d3/2 b1/2 |
+  c3/2 a1/2 |
+  b2/2 ab1/2 |
+  c3/2 a2/2 |
+  c3/2 f#2/2 |
+  e2/2 e2/2 |
+  a1/2 a1/2 |
+  r/2 c2/2 |
+  a1/2 c2/2 |
+  ab2/2 ab1/2 |
+  f1/2 a1/2 |
+
+voice 1: RH@rh
+voice 2: LH@lh
+voice 3: BS@bass
