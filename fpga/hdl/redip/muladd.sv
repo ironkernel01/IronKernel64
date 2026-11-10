@@ -8,8 +8,8 @@
 //   Dag Lem <resid@nimrod.no>, https://github.com/daglem/reDIP-SID), so it
 //   stays under the CERN-OHL-S v2 (https://ohwr.org/cern_ohl_s_v2.txt). It is
 //   distributed WITHOUT ANY EXPRESS OR IMPLIED WARRANTY; see the CERN-OHL-S v2.
-//   This is a substitution, not an edit of the upstream file (c64demo.md,
-//   Licensing).
+//   This is a substitution, not an edit of the upstream file (README.md,
+//   "Licences").
 // IK64_DEVIATION D4: substitution of gateware/muladd.sv (iCE40 SB_MAC16); see fpga/DEVIATIONS.md.
 // Overview:
 //   * o = c +- (a * b), a and b signed 16 bit, c and o signed 32 bit, wrapping

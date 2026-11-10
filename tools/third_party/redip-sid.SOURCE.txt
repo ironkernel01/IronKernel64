@@ -16,4 +16,4 @@ Substituted, not edited: gateware/muladd.sv instantiates the iCE40 SB_MAC16; Iro
   compiles fpga/hdl/redip/muladd.sv (same module name and ports, inferred DSP48) instead.
 
 Licensing consequence: the bitstream that contains this core is distributed under
-CERN-OHL-S-2.0; IronKernel 64 gateware is "GPL-3.0-or-later OR CERN-OHL-S-2.0" (c64demo.md).
+CERN-OHL-S-2.0; IronKernel 64 gateware is "GPL-3.0-or-later OR CERN-OHL-S-2.0" (README.md "Licences").

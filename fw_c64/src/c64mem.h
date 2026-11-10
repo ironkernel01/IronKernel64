@@ -93,7 +93,7 @@
 /* Raster line at the first cycle of every call (play calls start at the top of the frame). */
 #define C64MEM_CALL_START_LINE  (0u)
 
-/* Cycle cap of a play call: c64demo.md Phase 3, 20,000 cycles. The sidbus_log capacity
+/* Cycle cap of a play call: specification 3, "Play call budget", 20,000 cycles. The sidbus_log capacity
  * is derived from it (SIDBUS_LOG_PLAY_MAX_CYCLES, checked in c64mem.c). */
 #define C64MEM_PLAY_MAX_CYCLES  (20000u)
 

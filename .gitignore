@@ -6,10 +6,12 @@ build/
 *.log
 *.str
 
-# Repo-local knowledge base (fpga.md section 14.1): kept out of the public repo
+# Repo-local knowledge base (fpga.md section 14.1) and the owner's design log: kept out of the public repo
 .claude/
+c64demo.md
+*.code-workspace
 
-# Never committed (c64demo.md "Licensing"): third-party copyrighted media and private configuration
+# Never committed (README.md "Licences"): third-party copyrighted media and private configuration
 *.sid
 *.d64
 *.rom

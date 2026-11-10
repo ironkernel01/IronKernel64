@@ -22,7 +22,7 @@
 // Language: SystemVerilog-2012.
 // Revision: 11-09-2026
 //   * 11-09-2026: initial version.
-//   * 11-09-2026: dual SPDX expression (c64demo.md Licensing); port group comments.
+//   * 11-09-2026: dual SPDX expression (README.md "Licences"); port group comments.
 // Clocks: sid_clk (50 MHz, write), cpu_clk (100 MHz, read); asynchronous pair.
 // -----------------------------------------------------------------------------
 module sid_strm_cdc #(

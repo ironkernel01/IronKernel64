@@ -1,5 +1,5 @@
 RTLNet board-access scripts (IronKernel RTLNet, private repository, branch OV5640)
-Shared-board protocol agreed with session rtlnet-18 (c64demo.md "Board and tool coordination"):
+Shared-board protocol agreed with session rtlnet-18 (specification Appendix C, "Board and tool sharing"):
   rtlnet_board_lock.ps1  Enter-RtlnetBoardLock -Purpose <text> -ExpectedMinutes <n> / Exit-RtlnetBoardLock;
                          lock %LOCALAPPDATA%\IronKernel\nexys_video.lock, session name "ik64"
                          (RTLNET_BOARD_SESSION=ik64); a refusal prints

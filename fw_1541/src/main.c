@@ -6,7 +6,7 @@
  * Role: core 1 ("1541" drive) firmware entry: network bring-up and the SMB
  *   proof against the NAS share, with the log in the shared-BRAM ring that
  *   core 0 prints on its UART ("[1541] " prefix). Superloop, no RTOS, no
- *   interrupts (c64demo.md Phase 4, decision "Core 1 software: no RTOS").
+ *   interrupts (specification 4, "Key design choices": no RTOS on core 1).
  *
  * Flow (all waits bounded by the named constants below; a failed step is
  *   logged and retried, never silent):

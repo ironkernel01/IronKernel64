@@ -47,6 +47,6 @@ records the `lwipopts.h` hash.
 ## Licensing
 
 OWNER TO CONFIRM: the library is distributed as a binary for use with IronKernel 64. The GPL parts of
-the firmware link to it under the exception recorded in the root README.md (`c64demo.md`, "Release split").
+the firmware link to it under the exception recorded in the root README.md (specification chapter 14).
 libsmb2 (LGPL-2.1) stays relinkable: its objects are built from `third_party/libsmb2` and linked
 separately from this archive.

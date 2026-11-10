@@ -2,8 +2,8 @@
 -------------------------------------------------------------------------------
 File: ik64_board.ps1
 Purpose: take, show or release the machine-wide Nexys Video board lock as
-  session 'ik64' (the lock is shared with session rtlnet-18; see c64demo.md
-  "Board and tool coordination").
+  session 'ik64' (the lock is shared with session rtlnet-18; see specification
+  Appendix C, "Board and tool sharing").
 Overview:
   * Sets $env:RTLNET_BOARD_SESSION='ik64' and uses the shared lock functions
     (ironkernel/src/rtlnet-board/scripts/rtlnet_board_lock.ps1, wrapped by

@@ -14,7 +14,7 @@
  *   never blocks and never waits for core 0.
  * Context: the main superloop only (core 1 has no RTOS and no ISR that logs;
  *   it formats with vsnprintf and takes no lock).
- * Never log credentials (c64demo.md Phase 4 item 6).
+ * Never log credentials (they stay in the uncommitted netshare_config.h).
  *
  * Headers hold contracts; per-function commentary lives in drive_log.c.
  */
