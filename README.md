@@ -2,6 +2,8 @@
 
 A SID music machine with a C64-style shell, on a Digilent Nexys Video (AMD Artix-7 XC7A200T). Two MicroBlaze V cores run C firmware: core 0 ("C64") runs the screen editor, a 6502 interpreter and a PSID player; core 1 ("1541") emulates a disk drive that serves tunes from a network share (device 8) or from a built-in bank (device 9). The SID chip is the open-source reDIP-SID core in the FPGA. Video is 720p60 over HDMI, sound leaves through the board's ADAU1761 codec, and a 128 x 32 OLED shows the now-playing text.
 
+Website, with demo videos: [ironkernel.com/ip-cores/ironkernel64](https://ironkernel.com/ip-cores/ironkernel64/).
+
 Revision 11-10-2026. Documents: [specification](Documentation/ironkernel64_spec.pdf), [product brief](Documentation/ironkernel64_product_brief.pdf), [third-party notices](docs/THIRD_PARTY_NOTICES.md).
 
 ![IronKernel 64 block diagram](diagrams/out/png/product-brief-1.png)
