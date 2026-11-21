@@ -11,7 +11,7 @@
 <table style="width:100%; border:none; margin:0; padding:0;">
 <tr>
 <td style="text-align:left; border:none; padding:0; width:50%;"><img src="pdf/ironkernel_logo.png" alt="IronKernel" style="width:231px; margin:0;"></td>
-<td style="text-align:right; border:none; padding:0; width:50%;"><strong>Revision 11-10-2026</strong></td>
+<td style="text-align:right; border:none; padding:0; width:50%;"><strong>Revision 11-21-2026</strong></td>
 </tr>
 </table>
 <hr style="border:none; border-top:2px solid #000; margin:4px 0 12px 0;">
@@ -22,7 +22,7 @@
 
 <p style="text-align:center; font-size:16px;">A SID music machine with a C64-style shell on two MicroBlaze V cores, for the Digilent Nexys Video</p>
 
-<p style="text-align:center; font-size:14px;">Revision 11-10-2026</p>
+<p style="text-align:center; font-size:14px;">Revision 11-21-2026</p>
 
 <div style="page-break-after: always;"></div>
 
@@ -136,7 +136,7 @@ The product name is IronKernel 64. Commodore 64 is a trademark of its owner; thi
 
 #### Core 0 "C64"
 
-Core 0 is a MicroBlaze V (RV32IMC with Zicsr and Zba, 256 KiB LMB, 8 KiB instruction cache and 8 KiB write-through data cache over DDR3 only). Its firmware (`fw_c64/src`) is the screen editor and shell (`basic.c`, `c64screen.c`, `keyboard.c`), the PSID driver (`psid.c`), the 6502 interpreter (`cpu6502.c`) and memory map (`c64mem.c`), the player (`player.c`), the audio, video, OLED and codec drivers, and the drive client. The 64 KiB of emulated C64 RAM sits in the LMB with the firmware.
+Core 0 is a MicroBlaze V (RV32IMC with Zicsr, Zba, Zbb and Zbs, 256 KiB LMB, 8 KiB instruction cache and 8 KiB write-through data cache over DDR3 only). Its firmware (`fw_c64/src`) is the screen editor and shell (`basic.c`, `c64screen.c`, `keyboard.c`), the PSID driver (`psid.c`), the 6502 interpreter (`cpu6502.c`) and memory map (`c64mem.c`), the player (`player.c`), the audio, video, OLED and codec drivers, and the drive client. The 64 KiB of emulated C64 RAM sits in the LMB with the firmware.
 
 #### Core 1 "1541"
 
