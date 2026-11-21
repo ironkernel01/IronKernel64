@@ -110,6 +110,8 @@ A key typed on the keyboard or the UART reaches core 0. `LOAD` becomes a request
 
 A Digilent Nexys Video, a USB keyboard on J15, an HDMI monitor, a line input or headphones on the audio jacks, a USB cable for the UART, and for device 8 an SMB share on the Ethernet LAN. Device 9 needs no network. Not included: any C64 ROM image, HVSC tunes, microSD support.
 
+<div style="page-break-after: always;"></div>
+
 ## Open-source components
 
 The full list with commits, licences and file locations is in chapter 14 of the specification and in `docs/THIRD_PARTY_NOTICES.md`.
@@ -127,3 +129,9 @@ The full list with commits, licences and file locations is in chapter 14 of the 
 | IronKernel network core | closed | Ethernet MAC and protocols |
 
 Commodore 64 is a trademark of its owner. IronKernel 64 is an unaffiliated hobby project and contains no Commodore ROMs.
+
+## Contact IronKernel
+
+Talk with IronKernel about integrating the IronKernel 64 reference design, adapting it to your AMD FPGA board, or developing custom RTL and bare-metal MicroBlaze V firmware. Include your target board and project goal.
+
+[https://ironkernel.com/](https://ironkernel.com/) · [support@ironkernel.com](mailto:support@ironkernel.com)

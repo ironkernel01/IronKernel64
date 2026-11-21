@@ -804,3 +804,9 @@ The Nexys Video is shared with a second project (RTLNet, session `rtlnet-18`). T
 - UART: COM3, 115200 8N1, no flow control (the number can change after a USB replug). MAC address `02:1C:64:00:00:01`.
 - A UART-only session may skip reprogramming when the last release names our image and the core 1 heartbeat appears on the UART within 35 s; any JTAG work reprograms first.
 - Without `ironkernel/src` and without the shared folders the scripts run with no locks; with the folders but without `ironkernel/src` they refuse (exit 2).
+
+## Contact IronKernel
+
+Talk with IronKernel about integrating the IronKernel 64 reference design, adapting it to your AMD FPGA board, or developing custom RTL and bare-metal MicroBlaze V firmware. Include your target board and project goal.
+
+[https://ironkernel.com/](https://ironkernel.com/) · [support@ironkernel.com](mailto:support@ironkernel.com)
